@@ -89,6 +89,12 @@ class AdvancedPDFLearningAssistant:
         # 文档元数据
         self.documents_metadata: Dict[str, Any] = {}
         
+        # 上下文工程组件
+        self.compressor = None  # 上下文压缩器（简化版不使用）
+        self.contextual_retriever = None  # 上下文感知检索器（简化版不使用）
+        self.max_context_length = 4000  # 最大上下文长度
+        self.context_quality_threshold = 0.7  # 上下文质量阈值
+        
         # 学习统计
         self.stats = {
             "session_start": datetime.now(),
@@ -97,7 +103,9 @@ class AdvancedPDFLearningAssistant:
             "chunks_created": 0,
             "mqe_queries_generated": 0,
             "hyde_hypotheses_generated": 0,
-            "memories_created": 0
+            "memories_created": 0,
+            "context_compressed": 0,
+            "context_quality_scores": []
         }
 
     # ==================== 第一步：智能文档处理 ====================
@@ -162,7 +170,10 @@ class AdvancedPDFLearningAssistant:
                 search_kwargs={"k": 3}
             )
             
-            # 1.7 更新统计
+            # 1.7 初始化上下文压缩器
+            self._initialize_context_compressor()
+            
+            # 1.8 更新统计
             self.stats["documents_loaded"] += 1
             self.stats["chunks_created"] += len(chunks)
             
@@ -262,7 +273,23 @@ class AdvancedPDFLearningAssistant:
             else:
                 search_results = self._basic_retrieve(question)
             
-            # 2.2 格式化检索结果
+            # 2.2 【上下文工程】质量评估、排序、压缩、自适应窗口
+            print(f"\n🔍 检索到 {len(search_results)} 个文档片段")
+            
+            # 上下文质量评估
+            quality_report = self._evaluate_context_quality(question, search_results)
+            
+            # 上下文排序
+            search_results = self._rank_context_by_relevance(question, search_results)
+            
+            # 上下文压缩（如果文档数量过多）
+            if len(search_results) > 5:
+                search_results = self._compress_context(question, search_results)
+            
+            # 动态上下文窗口调整
+            search_results = self._adapt_context_window(question, search_results)
+            
+            # 2.3 格式化检索结果
             context = "\n\n".join([doc.page_content for doc in search_results])
             
             # 2.3 构建 RAG 链
@@ -382,24 +409,17 @@ class AdvancedPDFLearningAssistant:
         return docs
     
     def _retrieve_with_mqe_and_hyde(self, question: str) -> List:
-        """结合 MQE 和 HyDE 的检索"""
+        """结合 MQE 和 HyDE 的检索 + 上下文融合"""
         # MQE 生成多个查询
         mqe_docs = self._retrieve_with_mqe(question, num_queries=2)
         
         # HyDE 生成假设文档并检索
         hyde_docs = self._retrieve_with_hyde(question)
         
-        # 合并并去重
-        all_docs = mqe_docs + hyde_docs
-        seen = set()
-        unique_docs = []
-        for doc in all_docs:
-            content_hash = hashlib.md5(doc.page_content.encode()).hexdigest()
-            if content_hash not in seen:
-                seen.add(content_hash)
-                unique_docs.append(doc)
+        # 【上下文工程】多源上下文融合
+        fused_docs = self._fuse_multi_source_context([mqe_docs, hyde_docs])
         
-        return unique_docs[:10]
+        return fused_docs[:10]
     
     def _record_retrieval_to_memory(self, 
                                    question: str,
@@ -564,7 +584,13 @@ class AdvancedPDFLearningAssistant:
         return full_report
     
     def get_stats(self) -> dict:
-        """获取统计信息"""
+        """获取统计信息（包含上下文工程统计）"""
+        # 计算平均上下文质量
+        avg_quality = (
+            sum(self.stats["context_quality_scores"]) / len(self.stats["context_quality_scores"])
+            if self.stats["context_quality_scores"] else 0.0
+        )
+        
         return {
             **self.stats,
             "session_duration": datetime.now() - self.stats["session_start"],
@@ -573,7 +599,13 @@ class AdvancedPDFLearningAssistant:
                 len(self.memory_manager.episodic_memories) +
                 len(self.memory_manager.semantic_memories) +
                 len(self.memory_manager.perceptual_memories)
-            )
+            ),
+            "context_engineering": {
+                "compressions_performed": self.stats["context_compressed"],
+                "avg_context_quality": round(avg_quality, 3),
+                "quality_threshold": self.context_quality_threshold,
+                "max_context_length": self.max_context_length
+            }
         }
     
     def reset(self):
@@ -588,9 +620,299 @@ class AdvancedPDFLearningAssistant:
             "chunks_created": 0,
             "mqe_queries_generated": 0,
             "hyde_hypotheses_generated": 0,
-            "memories_created": 0
+            "memories_created": 0,
+            "context_compressed": 0,
+            "context_quality_scores": []
         }
         print("✓ 助手已重置（记忆系统保留）")
+    
+    # ==================== 上下文工程核心功能 ====================
+    
+    def _initialize_context_compressor(self):
+        """初始化上下文压缩器（简化版）"""
+        try:
+            # 简化版本：不依赖外部压缩器，使用自有的智能压缩逻辑
+            print(f"  ✓ 上下文压缩器已初始化 (基于规则的智能压缩)")
+        except Exception as e:
+            print(f"  ⚠️ 上下文压缩器初始化失败：{e}")
+    
+    def _compress_context(self, question: str, documents: List) -> List:
+        """
+        上下文压缩：提取与问题最相关的信息（基于规则和相似度）
+        
+        Args:
+            question: 问题
+            documents: 检索到的文档列表
+            
+        Returns:
+            压缩后的文档列表
+        """
+        if not documents:
+            return documents
+        
+        try:
+            # 计算每个文档的相关性分数
+            scored_docs = []
+            for doc in documents:
+                similarity = self._calculate_similarity(question, doc.page_content)
+                # 综合考虑相似度和文档长度
+                score = similarity * (1.0 / (1.0 + len(doc.page_content) / 1000))
+                scored_docs.append((doc, score))
+            
+            # 按分数降序排序
+            scored_docs.sort(key=lambda x: x[1], reverse=True)
+            
+            # 只保留 top 5 个最相关的文档
+            compressed_docs = [doc for doc, _ in scored_docs[:5]]
+            
+            self.stats["context_compressed"] += 1
+            
+            # 计算压缩率
+            original_length = sum(len(doc.page_content) for doc in documents)
+            compressed_length = sum(len(doc.page_content) for doc in compressed_docs)
+            compression_ratio = (original_length - compressed_length) / original_length if original_length > 0 else 0
+            
+            print(f"  📦 上下文压缩：{len(documents)} → {len(compressed_docs)} 个文档")
+            print(f"     压缩率：{compression_ratio:.1%}")
+            
+            return compressed_docs
+            
+        except Exception as e:
+            print(f"  ⚠️ 上下文压缩失败：{e}，返回原始文档")
+            return documents
+    
+    def _rank_context_by_relevance(self, question: str, documents: List) -> List:
+        """
+        上下文排序：根据与问题的相关性对文档进行排序
+        
+        Args:
+            question: 问题
+            documents: 待排序的文档列表
+            
+        Returns:
+            按相关性排序的文档列表
+        """
+        if not documents:
+            return documents
+        
+        try:
+            from langchain_core.documents import Document
+            
+            # 计算每个文档与问题的相似度
+            scored_docs = []
+            for doc in documents:
+                # 使用向量相似度评分
+                similarity_score = self._calculate_similarity(question, doc.page_content)
+                scored_docs.append((doc, similarity_score))
+            
+            # 按相似度降序排序
+            scored_docs.sort(key=lambda x: x[1], reverse=True)
+            
+            # 过滤低质量文档
+            high_quality_docs = [
+                doc for doc, score in scored_docs 
+                if score >= self.context_quality_threshold
+            ]
+            
+            # 如果没有高质量文档，返回所有文档
+            if not high_quality_docs:
+                high_quality_docs = [doc for doc, _ in scored_docs]
+            
+            print(f"  📊 上下文排序：保留 {len(high_quality_docs)}/{len(documents)} 个高质量文档")
+            
+            return high_quality_docs
+            
+        except Exception as e:
+            print(f"  ⚠️ 上下文排序失败：{e}")
+            return documents
+    
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """
+        计算两个文本的相似度（使用余弦相似度）
+        
+        Args:
+            text1: 文本 1
+            text2: 文本 2
+            
+        Returns:
+            相似度分数 (0-1)
+        """
+        try:
+            # 使用 OpenAI Embeddings 计算相似度
+            embedding1 = self.embeddings.embed_query(text1)
+            embedding2 = self.embeddings.embed_query(text2)
+            
+            # 计算余弦相似度
+            dot_product = sum(a * b for a, b in zip(embedding1, embedding2))
+            norm1 = sum(a * a for a in embedding1) ** 0.5
+            norm2 = sum(b * b for b in embedding2) ** 0.5
+            
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            
+            similarity = dot_product / (norm1 * norm2)
+            
+            # 记录质量分数
+            self.stats["context_quality_scores"].append(similarity)
+            
+            return similarity
+            
+        except Exception as e:
+            print(f"  ⚠️ 相似度计算失败：{e}")
+            return 0.0
+    
+    def _adapt_context_window(self, question: str, documents: List) -> List:
+        """
+        动态上下文窗口：根据输入长度调整上下文大小
+        
+        Args:
+            question: 问题
+            documents: 检索到的文档列表
+            
+        Returns:
+            调整后的文档列表
+        """
+        if not documents:
+            return documents
+        
+        try:
+            # 计算当前上下文总长度
+            total_length = sum(len(doc.page_content) for doc in documents)
+            
+            # 如果超过最大长度，逐步截断
+            if total_length > self.max_context_length:
+                print(f"  🔧 上下文过长 ({total_length} > {self.max_context_length})，自适应调整...")
+                
+                # 优先保留高相关性的文档
+                ranked_docs = self._rank_context_by_relevance(question, documents)
+                
+                # 逐步添加文档直到达到限制
+                adapted_docs = []
+                current_length = 0
+                
+                for doc in ranked_docs:
+                    doc_length = len(doc.page_content)
+                    if current_length + doc_length <= self.max_context_length:
+                        adapted_docs.append(doc)
+                        current_length += doc_length
+                    else:
+                        # 部分截断
+                        remaining = self.max_context_length - current_length
+                        if remaining > 0:
+                            truncated_content = doc.page_content[:remaining]
+                            from langchain_core.documents import Document
+                            adapted_docs.append(
+                                Document(
+                                    page_content=truncated_content,
+                                    metadata=doc.metadata
+                                )
+                            )
+                        break
+                
+                print(f"     调整后：{len(adapted_docs)} 个文档，{current_length} 字符")
+                return adapted_docs
+            
+            return documents
+            
+        except Exception as e:
+            print(f"  ⚠️ 上下文窗口调整失败：{e}")
+            return documents
+    
+    def _evaluate_context_quality(self, question: str, documents: List) -> Dict[str, Any]:
+        """
+        上下文质量评估：评估检索到的上下文质量
+        
+        Args:
+            question: 问题
+            documents: 检索到的文档列表
+            
+        Returns:
+            质量评估报告
+        """
+        if not documents:
+            return {"quality_score": 0.0, "metrics": {}}
+        
+        try:
+            # 计算平均相似度
+            similarities = []
+            for doc in documents:
+                sim = self._calculate_similarity(question, doc.page_content)
+                similarities.append(sim)
+            
+            avg_similarity = sum(similarities) / len(similarities) if similarities else 0.0
+            max_similarity = max(similarities) if similarities else 0.0
+            min_similarity = min(similarities) if similarities else 0.0
+            
+            # 计算文档多样性（基于内容长度差异）
+            lengths = [len(doc.page_content) for doc in documents]
+            length_variance = sum((l - sum(lengths)/len(lengths))**2 for l in lengths) / len(lengths) if lengths else 0
+            diversity_score = min(1.0, length_variance / 1000)  # 归一化到 0-1
+            
+            # 综合质量分数
+            quality_score = (
+                avg_similarity * 0.6 +  # 相似度权重 60%
+                max_similarity * 0.3 +  # 最高相似度权重 30%
+                diversity_score * 0.1   # 多样性权重 10%
+            )
+            
+            quality_report = {
+                "quality_score": round(quality_score, 3),
+                "metrics": {
+                    "avg_similarity": round(avg_similarity, 3),
+                    "max_similarity": round(max_similarity, 3),
+                    "min_similarity": round(min_similarity, 3),
+                    "num_documents": len(documents),
+                    "total_length": sum(lengths),
+                    "diversity_score": round(diversity_score, 3)
+                }
+            }
+            
+            # 打印质量报告
+            print(f"  📈 上下文质量：{quality_report['quality_score']:.2f}/1.00")
+            print(f"     平均相似度：{quality_report['metrics']['avg_similarity']:.3f}")
+            print(f"     文档数量：{quality_report['metrics']['num_documents']}")
+            
+            return quality_report
+            
+        except Exception as e:
+            print(f"  ⚠️ 上下文质量评估失败：{e}")
+            return {"quality_score": 0.0, "metrics": {}}
+    
+    def _fuse_multi_source_context(self, sources: List[List]) -> List:
+        """
+        上下文融合：整合多源检索结果
+        
+        Args:
+            sources: 多个检索结果列表
+            
+        Returns:
+            融合后的文档列表
+        """
+        if not sources:
+            return []
+        
+        try:
+            # 合并所有来源
+            all_docs = []
+            for source in sources:
+                all_docs.extend(source)
+            
+            # 去重（基于内容哈希）
+            seen = set()
+            unique_docs = []
+            for doc in all_docs:
+                content_hash = hashlib.md5(doc.page_content.encode()).hexdigest()
+                if content_hash not in seen:
+                    seen.add(content_hash)
+                    unique_docs.append(doc)
+            
+            print(f"  🔀 上下文融合：{sum(len(s) for s in sources)} → {len(unique_docs)} 个唯一文档")
+            
+            return unique_docs
+            
+        except Exception as e:
+            print(f"  ⚠️ 上下文融合失败：{e}")
+            return []
 
 
 # 使用示例

@@ -1,0 +1,75 @@
+{
+  "exported_at": "2026-03-23T21:45:56.788269",
+  "total_notes": 4,
+  "notes": [
+    {
+      "id": "note_20260323214556_0",
+      "title": "文件分析：codemind_assistant.py",
+      "content": "文件统计:\n{\n  \"path\": \"codemind_assistant.py\",\n  \"name\": \"codemind_assistant.py\",\n  \"size_bytes\": 41766,\n  \"size_kb\": 40.79,\n  \"lines\": 1119,\n  \"created_at\": \"2026-03-23T21:25:49.886303\",\n  \"modified_at\": \"2026-03-23T21:43:53.080591\",\n  \"is_file\": true,\n  \"is_dir\": false\n}\n\n内容预览:\n'tail' 不是内部或外部命令，也不是可运行的程序\n或批处理文件。\n",
+      "note_type": "observation",
+      "tags": [
+        "file_analysis",
+        "codemind_assistant.py"
+      ],
+      "related_files": [
+        "codemind_assistant.py"
+      ],
+      "priority": "medium",
+      "status": "open",
+      "created_at": "2026-03-23T21:45:56.742752",
+      "updated_at": "2026-03-23T21:45:56.742752",
+      "metadata": {}
+    },
+    {
+      "id": "note_20260323214556_1",
+      "title": "代码搜索：class.*Assistant",
+      "content": "'grep' 不是内部或外部命令，也不是可运行的程序\n或批处理文件。\n",
+      "note_type": "observation",
+      "tags": [
+        "search",
+        "class.*Assistant",
+        "*.py"
+      ],
+      "related_files": [],
+      "priority": "high",
+      "status": "open",
+      "created_at": "2026-03-23T21:45:56.784636",
+      "updated_at": "2026-03-23T21:45:56.784636",
+      "metadata": {}
+    },
+    {
+      "id": "note_20260323214556_2",
+      "title": "优化代码结构",
+      "content": "重构 codemind_assistant.py，提高代码质量",
+      "note_type": "task",
+      "tags": [
+        "refactor",
+        "code_quality"
+      ],
+      "related_files": [
+        "codemind_assistant.py"
+      ],
+      "priority": "high",
+      "status": "open",
+      "created_at": "2026-03-23T21:45:56.784636",
+      "updated_at": "2026-03-23T21:45:56.784636",
+      "metadata": {}
+    },
+    {
+      "id": "note_20260323214556_3",
+      "title": "代码库观察",
+      "content": "项目包含多个 Python 文件，使用 LangChain 框架构建",
+      "note_type": "observation",
+      "tags": [
+        "codebase",
+        "structure"
+      ],
+      "related_files": [],
+      "priority": "medium",
+      "status": "open",
+      "created_at": "2026-03-23T21:45:56.784636",
+      "updated_at": "2026-03-23T21:45:56.784636",
+      "metadata": {}
+    }
+  ]
+}
