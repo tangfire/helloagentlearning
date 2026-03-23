@@ -1,0 +1,22 @@
+# LangChain 核心框架
+langchain>=0.1.0
+langchain-community>=0.0.10
+langchain-openai>=0.0.5
+langchain-text-splitters>=0.0.1
+
+# 向量数据库
+faiss-cpu>=1.7.4
+
+# PDF 处理和文档转换
+markitdown[all]>=0.0.1a1
+pypdf>=4.0.0
+
+# 环境变量管理
+python-dotenv>=1.0.0
+
+# 其他工具
+tiktoken>=0.5.0
+
+# 数据处理
+numpy>=1.24.0
+pandas>=2.0.0
