@@ -46,10 +46,10 @@ etcd_data/
 redis_data/
 
 # 工作空间数据（运行时生成）
-01_hello_agent/workspaces/*/documents/*
-01_hello_agent/workspaces/*/vectorstore/*
-01_hello_agent/workspaces/*/sessions/*
-!01_hello_agent/workspaces/.gitkeep
+CodeMind/workspaces/*/documents/*
+CodeMind/workspaces/*/vectorstore/*
+CodeMind/workspaces/*/sessions/*
+!CodeMind/workspaces/.gitkeep
 
 # 日志文件
 *.log
@@ -77,5 +77,5 @@ FIXME.md
 .ipynb_checkpoints
 
 # 特定项目文件
-01_hello_agent/Happy-LLM-0727.pdf
+CodeMind/Happy-LLM-0727.pdf
 learning_report.json

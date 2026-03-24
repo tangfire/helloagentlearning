@@ -46,7 +46,7 @@ MILVUS_PORT=19530
 ### 步骤 3: 启动数据库服务
 
 ```bash
-cd 01_hello_agent
+cd CodeMind
 
 # Windows PowerShell
 .\start_docker.ps1
@@ -65,11 +65,11 @@ docker-compose up -d
 docker-compose ps
 
 # 应该看到以下服务都处于 Up 状态：
-# - 01_hello_agent-postgres-1
-# - 01_hello_agent-milvus-standalone
-# - 01_hello_agent-etcd
-# - 01_hello_agent-minio
-# - 01_hello_agent-redis
+# - CodeMind-postgres-1
+# - CodeMind-milvus-standalone
+# - CodeMind-etcd
+# - CodeMind-minio
+# - CodeMind-redis
 ```
 
 ### 步骤 5: 初始化数据库

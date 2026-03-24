@@ -20,7 +20,7 @@ pip install -r requirements.txt
 
 #### 方案 A: Docker Compose (推荐)
 ```bash
-cd 01_hello_agent
+cd CodeMind
 docker-compose up -d postgres milvus etcd minio
 ```
 
@@ -309,7 +309,7 @@ curl -X POST http://localhost:8000/api/chat \
 docker ps | grep postgres
 
 # 检查连接配置
-cat 01_hello_agent/.env | grep POSTGRES
+cat CodeMind/.env | grep POSTGRES
 
 # 测试连接
 psql -h localhost -U codemind -d codemind

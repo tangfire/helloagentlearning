@@ -239,11 +239,11 @@ if __name__ == "__main__":
     # 创建助手实例
     assistant = PDFLearningAssistant(user_id="user_001")
     
-    # 加载文档（PDF 文件在 01_hello_agent 目录下）
+    # 加载文档（PDF 文件在 CodeMind 目录下）
     pdf_path = "Happy-LLM-0727.pdf"  # 相对路径，文件在当前运行目录的子目录下
     # 尝试两种可能的路径
     if not os.path.exists(pdf_path):
-        pdf_path = "01_hello_agent/Happy-LLM-0727.pdf"  # 从项目根目录运行时的路径
+        pdf_path = "CodeMind/Happy-LLM-0727.pdf"  # 从项目根目录运行时的路径
     
     if os.path.exists(pdf_path):
         assistant.load_document(pdf_path)

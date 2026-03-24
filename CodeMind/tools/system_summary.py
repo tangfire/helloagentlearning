@@ -64,7 +64,7 @@
 """
 项目结构:
 helloagentlearning/
-├── 01_hello_agent/
+├── CodeMind/
 │   ├── memory_system.py              # 多层次记忆系统模块
 │   ├── advanced_pdf_assistant.py     # 高级智能文档问答助手（主程序）
 │   ├── pdf_assistant.py              # 基础版本（保留）

@@ -33,7 +33,7 @@ def demo_codemind():
     
     pdf_path = "Happy-LLM-0727.pdf"
     if not os.path.exists(pdf_path):
-        pdf_path = "01_hello_agent/Happy-LLM-0727.pdf"
+        pdf_path = "CodeMind/Happy-LLM-0727.pdf"
     
     if os.path.exists(pdf_path):
         print(f"\n加载文档：{pdf_path}")

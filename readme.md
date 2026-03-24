@@ -68,7 +68,7 @@ pip install -r requirements.txt
 3. **配置环境变量**
 ```bash
 # 复制环境变量模板
-cp 01_hello_agent/.env.example 01_hello_agent/.env
+cp CodeMind/.env.example CodeMind/.env
 
 # 编辑 .env 文件，配置 LLM API
 OPENAI_API_KEY=your_api_key
@@ -79,7 +79,7 @@ BASE_URL=https://api.openai-proxy.org/v1
 4. **启动数据库服务**
 ```bash
 # 使用 Docker Compose (推荐)
-cd 01_hello_agent
+cd CodeMind
 docker-compose up -d
 
 # 或者手动启动 PostgreSQL 和 Milvus
@@ -87,7 +87,7 @@ docker-compose up -d
 
 5. **初始化数据库**
 ```bash
-cd 01_hello_agent
+cd CodeMind
 python init_database.py
 ```
 
@@ -226,7 +226,7 @@ helloagentlearning/
 
 ### 运行测试
 ```bash
-cd 01_hello_agent/tests
+cd CodeMind/tests
 python test_web_api.py
 ```
 

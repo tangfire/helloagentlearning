@@ -142,7 +142,7 @@ helloagentlearning/
 
 ```bash
 # 启动数据库服务
-cd 01_hello_agent
+cd CodeMind
 docker-compose up -d
 
 # 初始化数据库
