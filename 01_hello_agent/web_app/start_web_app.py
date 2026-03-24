@@ -49,11 +49,11 @@ def start_server():
     # 检查依赖
     check_dependencies()
     
-    # 检查必要文件
+    # 检查必要文件（包括父目录的 core 和 tools 目录）
     required_files = [
         'web_api.py',
-        'codemind_assistant.py',
-        'mcp_client.py',
+        '../core/codemind_assistant.py',
+        '../tools/mcp_client.py',
         'static/index.html'
     ]
     

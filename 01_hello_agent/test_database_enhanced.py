@@ -12,8 +12,8 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from core.codemind_assistant_db import CodeMindAssistantDB
-from database.db_connection import get_db_context, init_db
-from database.dao import UserDAO, WorkspaceDAO
+from database.db_connection import get_db_context
+from database.dao import UserDAO
 
 
 def test_database_enhanced():

@@ -61,6 +61,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ==================== 静态文件路由（手动定义，避免覆盖根路由） ====================
+
 # ==================== 全局状态 ====================
 
 # 工作空间管理器
@@ -374,6 +376,16 @@ async def root():
     if not html_path.exists():
         raise HTTPException(status_code=404, detail=f"index.html not found at {html_path}")
     return FileResponse(html_path)
+
+# 静态文件路由（在根路由之后定义）
+@app.get("/static/{path:path}")
+async def get_static_file(path: str):
+    """提供静态文件"""
+    file_path = BASE_DIR / "static" / path
+    print(f"📄 请求静态文件：{file_path}")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+    return FileResponse(file_path)
 
 @app.get("/api/health")
 async def health_check():
@@ -974,17 +986,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             "message": f"用户 {client_id} 已断开连接"
         })
 
-# ==================== 静态文件挂载 ====================
 
-# 挂载静态文件目录（使用绝对路径）
-static_path = BASE_DIR / "static"
-print(f"📁 静态文件路径：{static_path}")
-print(f"📁 静态文件是否存在：{static_path.exists()}")
-if static_path.exists():
-    app.mount("/static", StaticFiles(directory=static_path), name="static")
-    print("✅ 静态文件已挂载到 /static")
-else:
-    print(f"❌ 静态文件路径不存在：{static_path}")
 
 # ==================== 主程序入口 ====================
 
