@@ -51,10 +51,10 @@ def start_server():
     
     # 检查必要文件
     required_files = [
-        'web_api.py',
-        'codemind_assistant.py',
-        'mcp_client.py',
-        'static/index.html'
+        'web_app/web_api.py',
+        'core/codemind_assistant.py',
+        'tools/mcp_client.py',
+        'web_app/static/index.html'
     ]
     
     print("\n📁 检查项目文件...")
@@ -75,7 +75,7 @@ def start_server():
         # 使用 uvicorn 启动
         import uvicorn
         uvicorn.run(
-            "web_api:app",
+            "web_app.web_api:app",
             host="0.0.0.0",
             port=8000,
             reload=False,

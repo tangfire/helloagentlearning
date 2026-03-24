@@ -72,9 +72,31 @@ class WorkspaceManager:
         self.workspaces: Dict[str, dict] = {}  # workspace_id -> info
         self.current_workspace_id: Optional[str] = None
         
+        # 启动时加载已有的工作空间
+        self._load_workspaces()
+    
+    def _load_workspaces(self):
+        """从磁盘加载已有的工作空间"""
+        if not self.base_path.exists():
+            return
+        
+        for workspace_dir in self.base_path.iterdir():
+            if workspace_dir.is_dir():
+                workspace_id = workspace_dir.name
+                config_file = workspace_dir / "config.json"
+                
+                if config_file.exists():
+                    import json
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        workspace_data = json.load(f)
+                        self.workspaces[workspace_id] = workspace_data
+                        print(f"📁 加载工作空间：{workspace_data['name']} (ID: {workspace_id})")
+        
     def create_workspace(self, name: str, description: str = "") -> str:
         """创建工作空间"""
         import uuid
+        import json
+        
         workspace_id = str(uuid.uuid4())[:8]
         workspace_path = self.base_path / workspace_id
         workspace_path.mkdir(parents=True, exist_ok=True)
@@ -84,7 +106,7 @@ class WorkspaceManager:
         (workspace_path / "vectorstore").mkdir(exist_ok=True)
         (workspace_path / "sessions").mkdir(exist_ok=True)
         
-        self.workspaces[workspace_id] = {
+        workspace_info = {
             "id": workspace_id,
             "name": name,
             "description": description,
@@ -93,6 +115,13 @@ class WorkspaceManager:
             "document_count": 0,
             "session_count": 0
         }
+        
+        # 保存配置到文件（持久化）
+        config_file = workspace_path / "config.json"
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(workspace_info, f, ensure_ascii=False, indent=2)
+        
+        self.workspaces[workspace_id] = workspace_info
         
         print(f"✅ 创建工作空间：{name} (ID: {workspace_id})")
         return workspace_id
@@ -190,7 +219,7 @@ workspace_manager = WorkspaceManager(USER_DATA_DIR)
 session_manager = SessionManager()
 
 # 全局配置：是否使用数据库增强版
-USE_DATABASE_ENHANCED = True  # 设置为 True 启用 PostgreSQL + Milvus，False 使用原有 FAISS
+USE_DATABASE_ENHANCED = True  # True=PostgreSQL + Milvus, False=FAISS（内存模式）
 
 # 单例助手实例（每个工作空间一个）
 assistants: Dict[str, CodeMindAssistant] = {}  # workspace_id -> assistant
@@ -339,7 +368,12 @@ def get_assistant_db() -> CodeMindAssistantDB:
 @app.get("/")
 async def root():
     """根路径 - 返回前端页面"""
-    return FileResponse(BASE_DIR / "static" / "index.html")
+    html_path = BASE_DIR / "static" / "index.html"
+    print(f"📄 请求根路径，HTML 文件位置：{html_path}")
+    print(f"📄 文件是否存在：{html_path.exists()}")
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail=f"index.html not found at {html_path}")
+    return FileResponse(html_path)
 
 @app.get("/api/health")
 async def health_check():
@@ -444,30 +478,55 @@ async def upload_files(files: List[UploadFile] = File(...)):
     
     支持格式：PDF, Word, Excel, PPT, TXT, Markdown, Python 代码等
     """
+    import traceback
+    from datetime import datetime
+    
     try:
+        print(f"\n📥 收到上传请求，文件数量：{len(files)}")
+        
         current_ws = workspace_manager.get_current_workspace()
         if not current_ws:
+            print("❌ 没有活跃的工作空间")
             raise HTTPException(status_code=400, detail="没有活跃的工作空间")
+        
+        print(f"✅ 当前工作空间：{current_ws['name']} (ID: {current_ws['id']})")
         
         upload_dir = Path(current_ws["path"]) / "documents"
         upload_dir.mkdir(parents=True, exist_ok=True)
+        print(f"📂 上传目录：{upload_dir}")
         
         uploaded_files = []
         
-        for file in files:
+        for i, file in enumerate(files):
+            print(f"\n📄 处理文件 {i+1}/{len(files)}: {file.filename}")
+            print(f"   - 类型：{file.content_type}")
+            print(f"   - 大小：{file.size} bytes")
+            
+            # 解决文件覆盖问题：添加时间戳
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename_parts = file.filename.rsplit('.', 1)
+            if len(filename_parts) == 2:
+                new_filename = f"{filename_parts[0]}_{timestamp}.{filename_parts[1]}"
+            else:
+                new_filename = f"{file.filename}_{timestamp}"
+            
             # 保存文件
-            file_path = upload_dir / file.filename
+            file_path = upload_dir / new_filename
+            print(f"   - 保存路径：{file_path}")
+            
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             
             uploaded_files.append({
-                "filename": file.filename,
+                "original_filename": file.filename,
+                "saved_filename": new_filename,
                 "size": file.size,
                 "content_type": file.content_type,
                 "path": str(file_path)
             })
+            print(f"   ✅ 保存成功")
         
-        print(f"✅ 上传 {len(uploaded_files)} 个文件到工作空间 '{current_ws['name']}'")
+        print(f"\n✅ 上传 {len(uploaded_files)} 个文件到工作空间 '{current_ws['name']}'")
         
         # 根据配置选择索引方式
         if USE_DATABASE_ENHANCED:
@@ -476,19 +535,32 @@ async def upload_files(files: List[UploadFile] = File(...)):
             print(f"\n📂 [DB] 开始索引文件到 PostgreSQL + Milvus...")
             
             success_count = 0
+            errors = []
             for file_info in uploaded_files:
-                result = asst.upload_document(
-                    file_path=file_info["path"],
-                    filename=file_info["filename"]
-                )
-                if result:
-                    success_count += 1
+                try:
+                    result = asst.upload_document(
+                        file_path=file_info["path"],
+                        filename=file_info["original_filename"]
+                    )
+                    if result:
+                        success_count += 1
+                    else:
+                        errors.append(f"{file_info['original_filename']}: 返回 False")
+                except Exception as e:
+                    errors.append(f"{file_info['original_filename']}: {str(e)}")
+                    print(f"❌ [DB] 文件索引失败 {file_info['original_filename']}: {e}")
+                    traceback.print_exc()
+            
+            if errors:
+                error_msg = "\n".join(errors)
+                print(f"❌ [DB] 错误详情：{error_msg}")
+                raise HTTPException(status_code=500, detail=f"部分文件索引失败:\n{error_msg}")
             
             print(f"✅ [DB] 索引完成：{success_count}/{len(uploaded_files)} 个文件成功")
         else:
             # 使用原有 FAISS 版本
-            asst = get_assistant()
             print(f"\n📂 开始索引工作空间的 documents 目录...")
+            asst = get_assistant()
             asst.index_codebase(
                 file_patterns=["*"],  # 索引所有文件
                 max_files=100
@@ -501,7 +573,11 @@ async def upload_files(files: List[UploadFile] = File(...)):
             "workspace_id": current_ws["id"]
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"❌ 上传接口发生异常：{e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== 会话管理 API ====================
@@ -901,10 +977,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 # ==================== 静态文件挂载 ====================
 
 # 挂载静态文件目录（使用绝对路径）
-try:
-    app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-except Exception as e:
-    print(f"⚠️  静态文件挂载失败：{e}")
+static_path = BASE_DIR / "static"
+print(f"📁 静态文件路径：{static_path}")
+print(f"📁 静态文件是否存在：{static_path.exists()}")
+if static_path.exists():
+    app.mount("/static", StaticFiles(directory=static_path), name="static")
+    print("✅ 静态文件已挂载到 /static")
+else:
+    print(f"❌ 静态文件路径不存在：{static_path}")
 
 # ==================== 主程序入口 ====================
 

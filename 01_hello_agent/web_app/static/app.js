@@ -605,6 +605,7 @@ function toggleWorkspacePanel() {
     panel.classList.toggle('show');
 }
 
+// 加载工作空间列表
 async function loadWorkspaces() {
     try {
         const wsResponse = await fetch('/api/workspace/list');
@@ -687,6 +688,16 @@ async function createWorkspace() {
     }
 }
 
+// 暴露全局函数供 HTML onclick 使用
+window.createWorkspace = createWorkspace;
+window.toggleWorkspacePanel = toggleWorkspacePanel;
+window.handleDrop = handleDrop;
+window.handleDragOver = handleDragOver;
+window.handleDragLeave = handleDragLeave;
+window.handleFileSelect = handleFileSelect;
+window.switchWorkspace = switchWorkspace;
+window.deleteWorkspace = deleteWorkspace;
+
 async function switchWorkspace(workspaceId) {
     try {
         const response = await fetch('/api/workspace/switch', {
@@ -768,6 +779,20 @@ function handleFileSelect(event) {
 async function uploadFiles(files) {
     if (files.length === 0) return;
     
+    // 先检查是否有活跃的工作空间
+    try {
+        const wsResponse = await fetch('/api/workspace/list');
+        const wsData = await wsResponse.json();
+        
+        if (!wsData.current_workspace_id) {
+            alert('⚠️ 请先创建或选择一个工作空间，然后再上传文件！');
+            return;
+        }
+    } catch (error) {
+        alert(`❌ 检查工作空间失败：${error.message}`);
+        return;
+    }
+    
     const dropZone = document.getElementById('dropZone');
     // 显示上传中状态
     const originalContent = dropZone.innerHTML;
@@ -785,7 +810,8 @@ async function uploadFiles(files) {
         });
         
         if (!response.ok) {
-            throw new Error(`HTTP 错误：${response.status}`);
+            const errorData = await response.json().catch(() => ({ detail: '未知错误' }));
+            throw new Error(`${response.status}: ${errorData.detail || '上传失败'}`);
         }
         
         const data = await response.json();
@@ -800,8 +826,9 @@ async function uploadFiles(files) {
             data.files.forEach(file => {
                 html += `
                     <li style="padding:0.5rem;margin:0.25rem 0;background:#f8f9fa;border-radius:4px;border-left:3px solid #28a745;font-size:0.85rem;">
-                        <strong>✅ ${file.filename}</strong>
+                        <strong>✅ ${file.original_filename}</strong>
                         <span style="font-size:0.75rem;color:#666;"> (${(file.size / 1024).toFixed(2)} KB)</span>
+                        ${file.original_filename !== file.saved_filename ? `<br><span style="font-size:0.7rem;color:#999;">→ ${file.saved_filename}</span>` : ''}
                     </li>
                 `;
             });
@@ -878,8 +905,8 @@ async function loadWorkspaceDocuments() {
                 const parts = line.trim().split(/\s+/);
                 const filename = parts[parts.length - 1];
                 
-                // 只显示.pdf、.txt、.md 等文件
-                if (filename && /\.(pdf|txt|md|doc|docx|xls|xlsx|ppt|pptx)$/i.test(filename)) {
+                // 只显示.pdf、.txt、.md、.py 等文件
+                if (filename && /\.(pdf|txt|md|doc|docx|xls|xlsx|ppt|pptx|py|js|ts|java|cpp|c|h|json|yaml|yml|xml|html|css|sql|sh|bat)$/i.test(filename)) {
                     html += `<li style="padding:0.5rem;background:#f8f9fa;margin:0.25rem 0;border-radius:4px;border-left:3px solid #007bff;">📄 ${filename}</li>`;
                 }
             });
