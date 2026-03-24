@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeMind Assistant - 代码库智能维护助手</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="header">
+        <div class="container">
+            <div class="logo">
+                <span class="logo-icon">🚀</span>
+                <h1>CodeMind Assistant</h1>
+            </div>
+            <nav class="nav">
+                <a href="#chat" class="nav-link active">💬 智能问答</a>
+                <a href="#codebase" class="nav-link">🗂️ 代码库</a>
+                <a href="#tasks" class="nav-link">✅ 任务管理</a>
+                <a href="#mcp" class="nav-link">🔌 MCP 服务</a>
+                <a href="#stats" class="nav-link">📊 统计</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+        <div class="container">
+            <!-- 智能问答模块 -->
+            <section id="chat" class="section active">
+                <div class="section-header">
+                    <h2>💬 智能问答</h2>
+                    <p class="section-desc">基于文档和代码的智能问答系统</p>
+                </div>
+                
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="message assistant">
+                            <div class="message-content">
+                                👋 你好！我是 CodeMind Assistant，你的代码库智能维护助手。
+                                我可以帮你：
+                                <ul>
+                                    <li>回答关于代码和文档的问题</li>
+                                    <li>探索和分析代码库结构</li>
+                                    <li>管理技术债务和重构任务</li>
+                                    <li>连接外部 MCP 服务扩展能力</li>
+                                </ul>
+                                请问有什么可以帮你的？
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-area">
+                        <textarea 
+                            id="chatInput" 
+                            placeholder="输入你的问题... (Shift+Enter 换行)"
+                            rows="3"
+                        ></textarea>
+                        <div class="chat-options">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useMQE" checked>
+                                <span>MQE 多查询扩展</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useHyDE" checked>
+                                <span>HyDE 假设文档</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useContext" checked>
+                                <span>历史上下文</span>
+                            </label>
+                        </div>
+                        <button id="sendBtn" class="btn btn-primary">
+                            <span>发送</span>
+                            <span class="btn-icon">➤</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 代码库操作模块 -->
+            <section id="codebase" class="section">
+                <div class="section-header">
+                    <h2>🗂️ 代码库操作</h2>
+                    <p class="section-desc">探索、分析和搜索代码库</p>
+                </div>
+                
+                <div class="codebase-tools">
+                    <div class="tool-card">
+                        <h3>🔍 代码库探索</h3>
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                id="exploreCommand" 
+                                placeholder="输入命令，如：dir, find . -name '*.py'"
+                                value="dir"
+                            >
+                            <button onclick="exploreCodebase()" class="btn btn-secondary">
+                                执行
+                            </button>
+                        </div>
+                        <div id="exploreResult" class="result-box"></div>
+                    </div>
+                    
+                    <div class="tool-card">
+                        <h3>📄 文件分析</h3>
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                id="analyzeFile" 
+                                placeholder="文件路径，如：main.py"
+                            >
+                            <button onclick="analyzeFile()" class="btn btn-secondary">
+                                分析
+                            </button>
+                        </div>
+                        <div id="analyzeResult" class="result-box"></div>
+                    </div>
+                    
+                    <div class="tool-card">
+                        <h3>🔎 代码搜索</h3>
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                id="searchPattern" 
+                                placeholder="搜索模式（正则表达式）"
+                            >
+                            <input 
+                                type="text" 
+                                id="filePattern" 
+                                placeholder="文件类型，如：*.py"
+                                value="*.py"
+                            >
+                            <button onclick="searchCodebase()" class="btn btn-secondary">
+                                搜索
+                            </button>
+                        </div>
+                        <div id="searchResult" class="result-box"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 任务管理模块 -->
+            <section id="tasks" class="section">
+                <div class="section-header">
+                    <h2>✅ 任务管理</h2>
+                    <p class="section-desc">记录问题、追踪任务、管理技术债务</p>
+                </div>
+                
+                <div class="task-manager">
+                    <div class="task-create">
+                        <h3>➕ 创建任务</h3>
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                id="taskTitle" 
+                                placeholder="任务标题"
+                            >
+                            <input 
+                                type="text" 
+                                id="taskDescription" 
+                                placeholder="任务描述（可选）"
+                            >
+                            <select id="taskPriority">
+                                <option value="low">低优先级</option>
+                                <option value="medium" selected>中优先级</option>
+                                <option value="high">高优先级</option>
+                                <option value="critical">紧急</option>
+                            </select>
+                            <button onclick="createTask()" class="btn btn-primary">
+                                创建任务
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="task-list">
+                        <h3>📋 任务列表</h3>
+                        <div class="task-filters">
+                            <button class="filter-btn active" onclick="loadTasks('open')">待处理</button>
+                            <button class="filter-btn" onclick="loadTasks('in_progress')">进行中</button>
+                            <button class="filter-btn" onclick="loadTasks('resolved')">已解决</button>
+                            <button class="filter-btn" onclick="loadTasks()">全部</button>
+                        </div>
+                        <div id="taskList" class="task-items"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MCP 服务模块 -->
+            <section id="mcp" class="section">
+                <div class="section-header">
+                    <h2>🔌 MCP 服务</h2>
+                    <p class="section-desc">连接外部 MCP 服务，扩展 AI 能力</p>
+                </div>
+                
+                <div class="mcp-panel">
+                    <div class="mcp-connect">
+                        <h3>🔗 连接 MCP 服务</h3>
+                        <div class="input-group">
+                            <select id="mcpServerType">
+                                <option value="filesystem">文件系统</option>
+                                <option value="git">Git 版本控制</option>
+                                <option value="database">数据库</option>
+                            </select>
+                            <input 
+                                type="text" 
+                                id="mcpCommand" 
+                                placeholder="自定义命令（可选）"
+                            >
+                            <button onclick="connectMCP()" class="btn btn-primary">
+                                连接
+                            </button>
+                        </div>
+                        <div id="mcpStatus" class="status-box"></div>
+                    </div>
+                    
+                    <div class="mcp-tools">
+                        <h3>🛠️ MCP 工具调用</h3>
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                id="mcpServerName" 
+                                placeholder="服务器名称"
+                            >
+                            <input 
+                                type="text" 
+                                id="mcpToolName" 
+                                placeholder="工具名称"
+                            >
+                            <textarea 
+                                id="mcpArguments" 
+                                placeholder="JSON 格式参数"
+                                rows="2"
+                            ></textarea>
+                            <button onclick="callMCPTool()" class="btn btn-secondary">
+                                调用
+                            </button>
+                        </div>
+                        <div id="mcpToolResult" class="result-box"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 统计模块 -->
+            <section id="stats" class="section">
+                <div class="section-header">
+                    <h2>📊 统计信息</h2>
+                    <p class="section-desc">查看系统运行状态和使用统计</p>
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statDocuments">0</div>
+                        <div class="stat-label">加载文档</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statChunks">0</div>
+                        <div class="stat-label">文本块</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statQuestions">0</div>
+                        <div class="stat-label">回答问题</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTasks">0</div>
+                        <div class="stat-label">创建任务</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statCommands">0</div>
+                        <div class="stat-label">执行命令</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statMCP">0</div>
+                        <div class="stat-label">MCP 连接</div>
+                    </div>
+                </div>
+                
+                <div class="actions">
+                    <button onclick="refreshStats()" class="btn btn-secondary">
+                        🔄 刷新统计
+                    </button>
+                    <button onclick="generateReport()" class="btn btn-primary">
+                        📄 生成报告
+                    </button>
+                </div>
+                
+                <div id="reportResult" class="result-box"></div>
+            </section>
+        </div>
+    </main>
+
+    <!-- 底部 -->
+    <footer class="footer">
+        <div class="container">
+            <p>CodeMind Assistant v1.0 - 代码库智能维护助手</p>
+            <p>Powered by FastAPI + MCP + LangChain</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

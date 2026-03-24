@@ -24,15 +24,41 @@ from langchain_core.runnables import RunnablePassthrough
 from markitdown import MarkItDown
 
 # 导入记忆系统
-from memory_system import MemoryManager, MemoryType, EpisodicMemory, SemanticMemory
+try:
+    from .memory_system import MemoryManager, MemoryType, EpisodicMemory, SemanticMemory
+except ImportError:
+    from memory_system import MemoryManager, MemoryType, EpisodicMemory, SemanticMemory
 
 # 导入新工具
-from note_tool import NoteTool
-from terminal_tool import TerminalTool
-from context_builder import ContextBuilder
+try:
+    from .note_tool import NoteTool
+    from .context_builder import ContextBuilder
+except ImportError:
+    from note_tool import NoteTool
+    from context_builder import ContextBuilder
 
-# 加载环境变量
-dotenv.load_dotenv()
+# MCP 相关（可选）
+try:
+    from tools.terminal_tool import TerminalTool
+    from tools.mcp_client import MCPClient
+    MCP_AVAILABLE = True
+except ImportError:
+    try:
+        from terminal_tool import TerminalTool
+        from mcp_client import MCPClient
+        MCP_AVAILABLE = True
+    except ImportError:
+        MCP_AVAILABLE = False
+        print("⚠️  MCP 模块未安装，部分功能不可用")
+
+# 加载环境变量 - 明确指定 .env 文件路径
+from pathlib import Path as PathLib
+env_path = PathLib(__file__).parent.parent / ".env"
+print(f"🔑 加载环境变量：{env_path}")
+dotenv.load_dotenv(dotenv_path=env_path)
+print(f"   OPENAI_API_KEY: {'已配置' if os.getenv('OPENAI_API_KEY') else '未配置'}")
+print(f"   MODEL: {os.getenv('MODEL', 'gpt-3.5-turbo')}")
+print(f"   BASE_URL: {os.getenv('BASE_URL', 'https://api.openai.com/v1')}")
 
 
 class CodeMindAssistant:
@@ -143,6 +169,196 @@ class CodeMindAssistant:
         print(f"   用户：{user_id}")
         print(f"   项目路径：{self.project_path}")
         print(f"   会话 ID: {self.session_id}")
+    
+    def index_codebase(self, file_patterns: List[str] = ["*.py"], max_files: int = 20) -> bool:
+        """
+        索引项目代码库到向量数据库
+        
+        Args:
+            file_patterns: 文件匹配模式列表，如 ["*.py", "*.md"]
+            max_files: 最大索引文件数
+            
+        Returns:
+            是否成功索引
+        """
+        try:
+            from langchain_core.documents import Document
+            import glob
+            
+            print(f"\n📂 开始索引项目代码库：{self.project_path}")
+            
+            # 收集所有匹配的文件
+            all_files = []
+            for pattern in file_patterns:
+                files = glob.glob(str(self.project_path / "**" / pattern), recursive=True)
+                all_files.extend(files)
+            
+            # 限制文件数量
+            all_files = all_files[:max_files]
+            print(f"   发现 {len(all_files)} 个文件")
+            
+            if not all_files:
+                print("   ⚠️  没有找到可索引的文件")
+                return False
+            
+            # 读取并处理每个文件
+            documents = []
+            for file_path in all_files:
+                try:
+                    path = Path(file_path)
+                    with open(path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 创建文档对象
+                    doc = Document(
+                        page_content=content,
+                        metadata={
+                            "source": str(path),
+                            "filename": path.name,
+                            "file_type": path.suffix,
+                            "file_size": path.stat().st_size,
+                            "index_time": datetime.now().isoformat()
+                        }
+                    )
+                    documents.append(doc)
+                except Exception as e:
+                    print(f"   ⚠️  跳过文件 {path.name}: {e}")
+                    continue
+            
+            if not documents:
+                print("   ❌ 没有可处理的文档")
+                return False
+            
+            # 分块
+            print("   → 分块处理...")
+            chunks = self.text_splitter.split_documents(documents)
+            print(f"   → 创建了 {len(chunks)} 个文本块")
+            
+            # 创建向量存储
+            print("   → 创建向量索引...")
+            self.vectorstore = FAISS.from_documents(chunks, self.embeddings)
+            
+            # 创建检索器
+            print("   → 创建检索器...")
+            self.retriever = self.vectorstore.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k": 3}
+            )
+            
+            # 初始化上下文压缩器
+            self._initialize_context_compressor()
+            
+            # 更新统计
+            self.stats["documents_loaded"] = len(documents)
+            self.stats["chunks_created"] = len(chunks)
+            
+            print(f"\n✅ 代码库索引完成！")
+            print(f"   - 索引文件数：{len(documents)}")
+            print(f"   - 文本块数：{len(chunks)}")
+            print(f"   - 可以开始提问了")
+            
+            # 自动保存向量索引
+            self.save_vectorstore()
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ 索引失败：{e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def save_vectorstore(self, save_path: Optional[Path] = None) -> bool:
+        """
+        保存向量索引到磁盘
+        
+        Args:
+            save_path: 保存路径（可选，默认为项目路径下的 vectorstore 目录）
+        """
+        try:
+            if self.vectorstore is None:
+                print("⚠️  没有可保存的向量索引")
+                return False
+            
+            if save_path is None:
+                save_path = self.project_path / "vectorstore"
+            
+            save_path.mkdir(parents=True, exist_ok=True)
+            
+            print(f"💾 保存向量索引到：{save_path}")
+            self.vectorstore.save_local(str(save_path))
+            
+            # 保存元数据
+            metadata_file = save_path / "metadata.json"
+            with open(metadata_file, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "project_path": str(self.project_path),
+                    "user_id": self.user_id,
+                    "documents_loaded": self.stats["documents_loaded"],
+                    "chunks_created": self.stats["chunks_created"],
+                    "saved_at": datetime.now().isoformat()
+                }, f, ensure_ascii=False, indent=2)
+            
+            print(f"✅ 向量索引已保存")
+            return True
+            
+        except Exception as e:
+            print(f"❌ 保存向量索引失败：{e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def load_vectorstore(self, load_path: Optional[Path] = None) -> bool:
+        """
+        从磁盘加载向量索引
+        
+        Args:
+            load_path: 加载路径（可选，默认为项目路径下的 vectorstore 目录）
+        """
+        try:
+            if load_path is None:
+                load_path = self.project_path / "vectorstore"
+            
+            if not load_path.exists():
+                print(f"⚠️  向量索引不存在：{load_path}")
+                return False
+            
+            print(f"📂 从 {load_path} 加载向量索引...")
+            
+            # 加载向量存储
+            self.vectorstore = FAISS.load_local(
+                str(load_path),
+                self.embeddings,
+                allow_dangerous_deserialization=True
+            )
+            
+            # 创建检索器
+            self.retriever = self.vectorstore.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k": 3}
+            )
+            
+            # 加载元数据
+            metadata_file = load_path / "metadata.json"
+            if metadata_file.exists():
+                with open(metadata_file, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+                    self.stats["documents_loaded"] = metadata.get("documents_loaded", 0)
+                    self.stats["chunks_created"] = metadata.get("chunks_created", 0)
+                    print(f"   📊 加载的文档数：{metadata.get('documents_loaded', 0)}")
+                    print(f"   📊 加载的文本块数：{metadata.get('chunks_created', 0)}")
+            
+            # 初始化上下文压缩器
+            self._initialize_context_compressor()
+            
+            print(f"✅ 向量索引加载成功！")
+            return True
+            
+        except Exception as e:
+            print(f"❌ 加载向量索引失败：{e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     # ==================== 第一步：智能文档处理 ====================
     
@@ -490,7 +706,18 @@ class CodeMindAssistant:
             )
             
             # 2.5 生成回答
-            answer = rag_chain.invoke(question)
+            print(f"\n🤖 正在生成回答...")
+            print(f"   - LLM 模型：{self.llm.model_name}")
+            print(f"   - Base URL: {self.llm.openai_api_base}")
+            try:
+                answer = rag_chain.invoke(question)
+                print(f"   ✅ 回答生成成功，长度：{len(answer)}")
+            except Exception as llm_error:
+                print(f"   ❌ LLM 调用失败：{llm_error}")
+                print(f"   错误类型：{type(llm_error).__name__}")
+                import traceback
+                traceback.print_exc()
+                raise Exception(f"AI 模型调用失败：{llm_error}")
             
             # 2.6 更新统计
             self.stats["questions_asked"] += 1
@@ -695,6 +922,155 @@ class CodeMindAssistant:
                 "context_entries": len(self.context_builder.context_history)
             }
         }
+    
+    # ==================== MCP 集成功能 ====================
+    
+    def connect_to_mcp_server(self, server_name: str, 
+                             command: Optional[str] = None,
+                             args: Optional[List[str]] = None) -> bool:
+        """
+        连接到外部 MCP 服务器
+        
+        Args:
+            server_name: 服务器名称（filesystem, git, database 等）
+            command: 启动命令
+            args: 命令参数
+            
+        Returns:
+            连接是否成功
+        """
+        if not MCP_AVAILABLE:
+            print("⚠️  MCP 模块不可用，请安装依赖：pip install mcp")
+            return False
+        
+        import asyncio
+        from mcp_client import MCPClient
+        
+        async def _connect():
+            client = MCPClient()
+            success = await client.connect_to_server(server_name, command, args)
+            return client, success
+        
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        mcp_client, success = loop.run_until_complete(_connect())
+        
+        if success:
+            print(f"✅ 已连接到 MCP 服务器：{server_name}")
+            # 保存客户端实例
+            if not hasattr(self, 'mcp_clients'):
+                self.mcp_clients = {}
+            self.mcp_clients[server_name] = mcp_client
+            
+            # 记录到笔记
+            self.note_tool.create_note(
+                title=f"MCP 连接：{server_name}",
+                content=f"连接到 MCP 服务器：{server_name}",
+                note_type="observation",
+                tags=["mcp", "integration"]
+            )
+        else:
+            print(f"❌ 连接 MCP 服务器失败：{server_name}")
+        
+        return success
+    
+    async def call_mcp_tool(self, server_name: str, tool_name: str,
+                           arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        调用外部 MCP 服务器的工具
+        
+        Args:
+            server_name: 服务器名称
+            tool_name: 工具名称
+            arguments: 工具参数
+            
+        Returns:
+            工具执行结果
+        """
+        if not MCP_AVAILABLE:
+            return {
+                "success": False,
+                "error": "MCP 模块不可用"
+            }
+        
+        if not hasattr(self, 'mcp_clients') or server_name not in self.mcp_clients:
+            return {
+                "success": False,
+                "error": f"未连接到 MCP 服务器：{server_name}"
+            }
+        
+        client = self.mcp_clients[server_name]
+        result = await client.call_tool(server_name, tool_name, arguments)
+        
+        # 记录工具调用
+        self.stats["commands_executed"] += 1
+        
+        return result
+    
+    def get_mcp_status(self) -> Dict[str, Any]:
+        """
+        获取 MCP 连接状态
+        
+        Returns:
+            连接状态信息
+        """
+        if not MCP_AVAILABLE:
+            return {"available": False}
+        
+        if not hasattr(self, 'mcp_clients'):
+            return {
+                "available": True,
+                "connected_servers": 0,
+                "servers": {}
+            }
+        
+        status = {
+            "available": True,
+            "connected_servers": len(getattr(self, 'mcp_clients', {})),
+            "servers": {}
+        }
+        
+        for name, client in getattr(self, 'mcp_clients', {}).items():
+            client_status = client.get_connection_status()
+            status["servers"][name] = client_status
+        
+        return status
+    
+    def disconnect_mcp_server(self, server_name: Optional[str] = None):
+        """
+        断开 MCP 服务器连接
+        
+        Args:
+            server_name: 服务器名称（可选，不传则断开所有连接）
+        """
+        if not hasattr(self, 'mcp_clients'):
+            return
+        
+        import asyncio
+        
+        async def _disconnect(name: Optional[str]):
+            if name:
+                if name in self.mcp_clients:
+                    await self.mcp_clients[name].disconnect(name)
+                    del self.mcp_clients[name]
+                    print(f"🔌 已断开 MCP 连接：{name}")
+            else:
+                for client_name in list(self.mcp_clients.keys()):
+                    await self.mcp_clients[client_name].disconnect()
+                self.mcp_clients.clear()
+                print("🔌 已断开所有 MCP 连接")
+        
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        loop.run_until_complete(_disconnect(server_name))
     
     def reset(self):
         """重置助手（保留记忆系统）"""

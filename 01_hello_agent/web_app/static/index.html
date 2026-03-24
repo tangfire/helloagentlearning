@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeMind Assistant - 代码库智能维护助手</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 左侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="logo-icon">🚀</span>
+                <h1>CodeMind</h1>
+            </div>
+            
+            <!-- 当前工作空间 -->
+            <div class="current-workspace-card">
+                <div style="font-size:0.75rem;color:#999;margin-bottom:0.5rem;">📂 当前工作空间</div>
+                <div id="currentWorkspaceName" style="font-weight:bold;margin-bottom:0.5rem;">未选择</div>
+                <button onclick="document.getElementById('workspacePanel').classList.toggle('show')" 
+                        class="btn btn-sm btn-primary" style="width:100%;">
+                    🗂️ 切换
+                </button>
+            </div>
+            
+            <!-- 工作空间面板 -->
+            <div id="workspacePanel" class="workspace-panel">
+                <div class="panel-header">
+                    <h3>我的工作空间</h3>
+                    <button onclick="toggleWorkspacePanel()" class="btn-close">×</button>
+                </div>
+                
+                <div class="workspace-create">
+                    <input 
+                        type="text" 
+                        id="workspaceName" 
+                        placeholder="工作空间名称"
+                        style="width:100%;margin-bottom:0.5rem;padding:0.5rem;border:1px solid #ddd;border-radius:4px;"
+                    >
+                    <input 
+                        type="text" 
+                        id="workspaceDesc" 
+                        placeholder="描述（可选）"
+                        style="width:100%;margin-bottom:0.5rem;padding:0.5rem;border:1px solid #ddd;border-radius:4px;"
+                    >
+                    <button onclick="createWorkspace()" class="btn btn-primary" style="width:100%;">
+                        ➕ 创建
+                    </button>
+                </div>
+                
+                <div id="workspaceList" class="workspace-items"></div>
+            </div>
+            
+            <!-- 文件上传 -->
+            <div class="upload-section">
+                <h3>📤 上传文件</h3>
+                <div 
+                    id="dropZone" 
+                    class="drop-zone-small"
+                    ondrop="handleDrop(event)"
+                    ondragover="handleDragOver(event)"
+                    ondragleave="handleDragLeave(event)"
+                >
+                    <div class="drop-zone-content">
+                        <span style="font-size:24px;">📁</span>
+                        <p style="font-size:0.75rem;">拖拽或点击上传</p>
+                    </div>
+                </div>
+                <input 
+                    type="file" 
+                    id="fileInput" 
+                    multiple 
+                    style="display: none;"
+                    onchange="handleFileSelect(event)"
+                >
+                <button onclick="document.getElementById('fileInput').click()" 
+                        class="btn btn-secondary" 
+                        style="width:100%;margin-top:0.5rem;font-size:0.85rem;">
+                    选择文件
+                </button>
+                <div id="uploadStatus" style="margin-top:0.75rem;"></div>
+            </div>
+            
+            <!-- 文档列表 -->
+            <div class="documents-section">
+                <h3>📂 文档列表</h3>
+                <div id="workspaceDocuments" class="document-items">
+                    <p style="text-align:center;color:#999;font-size:0.85rem;">加载中...</p>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- 主内容区 -->
+        <main class="main-content-single">
+            <header class="top-bar">
+                <h2>💬 智能问答</h2>
+                <p style="color:#999;font-size:0.9rem;">基于当前工作空间的文档和代码进行问答</p>
+            </header>
+            
+            <div class="chat-container-full">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message assistant">
+                        <div class="message-content">
+                            👋 你好！我是 CodeMind Assistant。
+                            <br><br>
+                            我可以帮你：
+                            <ul style="margin:1rem 0;padding-left:1.5rem;">
+                                <li>回答关于代码和文档的问题</li>
+                                <li>探索和分析代码库结构</li>
+                                <li>管理技术债务和重构任务</li>
+                            </ul>
+                            
+                            <div style="background:#f8f9fa;padding:1rem;border-radius:8px;margin-top:1rem;">
+                                <strong>💡 使用提示：</strong>
+                                <ol style="margin:0.5rem 0;padding-left:1.5rem;">
+                                    <li>在左侧创建工作空间</li>
+                                    <li>上传你的文档或代码文件</li>
+                                    <li>在右侧提问任何问题</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="chat-input-area-large">
+                    <textarea 
+                        id="chatInput" 
+                        placeholder="输入你的问题... (Shift+Enter 换行)"
+                        rows="4"
+                        style="width:100%;padding:1rem;border:1px solid #ddd;border-radius:8px;resize:none;font-family:inherit;font-size:1rem;"
+                    ></textarea>
+                    <div class="chat-options">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="useMQE" checked>
+                            <span>MQE</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="useHyDE" checked>
+                            <span>HyDE</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="useContext" checked>
+                            <span>上下文</span>
+                        </label>
+                    </div>
+                    <button id="sendBtn" class="btn btn-primary btn-lg">
+                        <span>发送</span>
+                        <span class="btn-icon">➤</span>
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="/static/app.js?v=2"></script>
+</body>
+</html>
