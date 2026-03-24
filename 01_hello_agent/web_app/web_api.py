@@ -129,11 +129,35 @@ class WorkspaceManager:
         return workspace_id
     
     def switch_workspace(self, workspace_id: str) -> bool:
-        """切换工作空间"""
+        """切换工作空间 - 支持短 ID 和完整 UUID"""
+        # 先尝试直接匹配
         if workspace_id in self.workspaces:
             self.current_workspace_id = workspace_id
             print(f"🔄 切换到工作空间：{self.workspaces[workspace_id]['name']}")
             return True
+        
+        # 如果不是短 ID（可能是 UUID），尝试通过名称匹配找到对应的工作空间
+        if len(workspace_id) > 8:
+            # 这是一个 UUID，需要通过数据库查找对应的短 ID
+            from database.dao import WorkspaceDAO
+            from database.db_connection import get_db_context
+            
+            with get_db_context() as db:
+                workspace_dao = WorkspaceDAO(db)
+                # 获取所有工作空间查找匹配的 UUID
+                all_workspaces = workspace_dao.get_user_workspaces("00000000-0000-0000-0000-000000000001")
+                
+                for ws in all_workspaces:
+                    if str(ws.id) == workspace_id:
+                        # 找到匹配的 UUID，现在需要在本地 workspaces 中找到对应的短 ID
+                        for short_id, ws_info in self.workspaces.items():
+                            if ws_info['name'] == ws.name:
+                                # 找到匹配的短 ID
+                                self.current_workspace_id = short_id
+                                print(f"🔄 切换到工作空间：{ws_info['name']} (UUID: {workspace_id})")
+                                return True
+        
+        print(f"⚠️ 找不到工作空间：{workspace_id}")
         return False
     
     def delete_workspace(self, workspace_id: str) -> bool:
@@ -150,9 +174,29 @@ class WorkspaceManager:
         return False
     
     def get_current_workspace(self) -> Optional[dict]:
-        """获取当前工作空间"""
-        if self.current_workspace_id and self.current_workspace_id in self.workspaces:
-            return self.workspaces[self.current_workspace_id]
+        """获取当前工作空间 - 支持短 ID 和完整 UUID"""
+        if self.current_workspace_id:
+            # 先尝试直接匹配
+            if self.current_workspace_id in self.workspaces:
+                return self.workspaces[self.current_workspace_id]
+            
+            # 如果是 UUID 格式，尝试通过名称查找
+            if len(self.current_workspace_id) > 8:
+                from database.dao import WorkspaceDAO
+                from database.db_connection import get_db_context
+                
+                with get_db_context() as db:
+                    workspace_dao = WorkspaceDAO(db)
+                    all_workspaces = workspace_dao.get_user_workspaces("00000000-0000-0000-0000-000000000001")
+                    
+                    for ws in all_workspaces:
+                        if str(ws.id) == self.current_workspace_id:
+                            # 找到匹配的 UUID，返回对应的本地工作空间信息
+                            for short_id, ws_info in self.workspaces.items():
+                                if ws_info['name'] == ws.name:
+                                    print(f"📋 通过 UUID 找到工作空间：{ws_info['name']} (短 ID: {short_id}, UUID: {self.current_workspace_id})")
+                                    return ws_info
+        
         return None
     
     def list_workspaces(self) -> List[dict]:
@@ -355,13 +399,81 @@ def get_assistant_db() -> CodeMindAssistantDB:
     workspace_id = current_workspace["id"]
     
     if workspace_id not in assistants_db:
+        # 初始化数据库版助手 - 使用默认管理员用户的 UUID
+        from database.dao import UserDAO, WorkspaceDAO
+        from database.db_connection import get_db_context
+        import uuid
+        
+        # 获取默认用户的 UUID
+        with get_db_context() as db:
+            user_dao = UserDAO(db)
+            default_user = user_dao.get_default_user()
+            user_id = str(default_user.id) if default_user else "00000000-0000-0000-0000-000000000001"
+            
+            # 检查工作空间是否已经在数据库中有映射
+            # 如果 workspace_id 是短 ID（8 位），需要在数据库中查找或创建对应的完整 UUID
+            is_short_id = len(workspace_id) == 8
+            
+            if is_short_id:
+                # 短 ID 模式：在数据库中查找匹配的完整 UUID 工作空间
+                workspace_dao = WorkspaceDAO(db)
+                all_workspaces = workspace_dao.get_user_workspaces(user_id)
+                
+                print(f"   - 数据库中找到 {len(all_workspaces)} 个工作空间")
+                for ws in all_workspaces:
+                    print(f"     * {ws.name} (ID: {ws.id})")
+                
+                # 查找名称匹配的工作空间（精确匹配）
+                matched_workspace = None
+                for ws in all_workspaces:
+                    if str(ws.name).strip() == str(current_workspace["name"]).strip():
+                        matched_workspace = ws
+                        break
+                
+                if matched_workspace:
+                    # 找到匹配的工作空间，使用其完整 UUID
+                    full_workspace_id = str(matched_workspace.id)
+                    print(f"   ✓ 找到匹配的工作空间：{full_workspace_id}")
+                else:
+                    # 创建新的数据库工作空间
+                    full_workspace_id = str(uuid.uuid4())
+                    db_workspace = workspace_dao.create_workspace(
+                        name=current_workspace["name"],
+                        owner_id=user_id,
+                        description=current_workspace.get("description", "")
+                    )
+                    print(f"   ✓ 在数据库中创建工作空间：{full_workspace_id}")
+                
+                # 更新当前工作空间的 ID 为完整 UUID
+                current_workspace["id"] = full_workspace_id
+                workspace_id = full_workspace_id
+                # 重要：同步回 workspace_manager，保持一致性
+                workspace_manager.current_workspace_id = full_workspace_id
+            else:
+                # 完整 UUID 模式：直接查询数据库
+                workspace_dao = WorkspaceDAO(db)
+                db_workspace = workspace_dao.get_workspace(workspace_id)
+                
+                if not db_workspace:
+                    # 在数据库中创建记录
+                    db_workspace = workspace_dao.create_workspace(
+                        name=current_workspace["name"],
+                        owner_id=user_id,
+                        description=current_workspace.get("description", "")
+                    )
+                    print(f"   - 在数据库中创建工作空间：{workspace_id}")
+                else:
+                    print(f"   - 使用数据库中的工作空间：{workspace_id}")
+        
         # 初始化数据库版助手
         assistants_db[workspace_id] = CodeMindAssistantDB(
-            user_id="admin",  # 使用默认管理员用户
+            user_id=user_id,  # 使用默认管理员用户的 UUID
             workspace_id=workspace_id
         )
         
         print(f"🤖 [DB] 为工作空间 {current_workspace['name']} 初始化数据库助手...")
+        print(f"   - 用户 ID: {user_id}")
+        print(f"   - 工作空间 ID: {workspace_id}")
     
     return assistants_db[workspace_id]
 
@@ -809,6 +921,60 @@ async def update_task(task_id: str, request: TaskUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== 文档处理 API ====================
+
+@app.get("/api/documents/list")
+async def list_documents():
+    """列出当前工作空间的所有文档"""
+    try:
+        print(f"\n📋 [API] 请求文档列表...")
+        current_ws = workspace_manager.get_current_workspace()
+        if not current_ws:
+            print(f"❌ [API] 没有活跃的工作空间")
+            raise HTTPException(status_code=400, detail="没有活跃的工作空间")
+        
+        print(f"✅ [API] 当前工作空间：{current_ws['name']} (ID: {current_ws['id']})")
+        docs_path = Path(current_ws["path"]) / "documents"
+        print(f"🔍 [API] 文档目录：{docs_path}")
+        
+        if not docs_path.exists():
+            print(f"⚠️ [API] 文档目录不存在")
+            return {
+                "documents": [],
+                "count": 0,
+                "workspace_id": current_ws["id"]
+            }
+        
+        documents = []
+        for file_path in docs_path.iterdir():
+            if file_path.is_file():
+                # 过滤掉临时文件和隐藏文件
+                if file_path.name.startswith('.') or file_path.suffix in ['.tmp', '.bak']:
+                    continue
+                    
+                doc_info = {
+                    "filename": file_path.name,
+                    "size": file_path.stat().st_size,
+                    "created_at": datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
+                    "modified_at": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat(),
+                    "path": str(file_path)
+                }
+                print(f"   📄 找到文件：{doc_info['filename']} ({doc_info['size']} bytes)")
+                documents.append(doc_info)
+        
+        # 按修改时间倒序排序
+        documents.sort(key=lambda x: x['modified_at'], reverse=True)
+        
+        print(f"✅ [API] 返回 {len(documents)} 个文档")
+        return {
+            "documents": documents,
+            "count": len(documents),
+            "workspace_id": current_ws["id"]
+        }
+    except Exception as e:
+        print(f"❌ [API] 异常：{e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/documents/load")
 async def load_document(request: DocumentLoadRequest):

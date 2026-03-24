@@ -27,7 +27,7 @@ from database.dao import (
     DocumentDAO, WorkspaceDAO, UserDAO, 
     OperationLogDAO, ConversationDAO, RetrieverService
 )
-from database.models import User, Workspace, Document
+from database.models import User, Workspace, Document as DBDocument
 from database.milvus_client import get_milvus_client
 
 # MarkItDown for document conversion

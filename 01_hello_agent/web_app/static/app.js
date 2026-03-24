@@ -882,38 +882,32 @@ async function loadWorkspaceDocuments() {
         
         console.log('📂 当前工作空间:', currentWs.name, '路径:', currentWs.path);
         
-        // 读取 documents 目录
-        const docsPath = `${currentWs.path}/documents`;
-        console.log('🔍 探索目录:', docsPath);
-        const dirResponse = await fetch('/api/codebase/explore', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({command: `dir "${docsPath}"`})
-        });
-        const dirData = await dirResponse.json();
-        console.log('📦 收到目录数据:', dirData);
+        // 使用新的文档列表 API
+        console.log('🔍 获取文档列表...');
+        const docsResponse = await fetch('/api/documents/list');
+        const docsData = await docsResponse.json();
+        console.log('📦 收到文档数据:', docsData);
         
-        if (dirData.output && !dirData.output.includes('File Not Found')) {
-            const lines = dirData.output.split('\n').filter(line => line.trim());
+        if (docsData.documents && docsData.documents.length > 0) {
             let html = '<ul style="list-style:none;padding:0;">';
             
-            lines.forEach(line => {
-                // 跳过目录行
-                if (line.includes('<DIR>')) return;
-                
-                // 提取文件名（每行的最后一部分）
-                const parts = line.trim().split(/\s+/);
-                const filename = parts[parts.length - 1];
-                
-                // 只显示.pdf、.txt、.md、.py 等文件
-                if (filename && /\.(pdf|txt|md|doc|docx|xls|xlsx|ppt|pptx|py|js|ts|java|cpp|c|h|json|yaml|yml|xml|html|css|sql|sh|bat)$/i.test(filename)) {
-                    html += `<li style="padding:0.5rem;background:#f8f9fa;margin:0.25rem 0;border-radius:4px;border-left:3px solid #007bff;">📄 ${filename}</li>`;
+            docsData.documents.forEach(doc => {
+                // 只显示支持的文件类型
+                if (/\.(pdf|txt|md|doc|docx|xls|xlsx|ppt|pptx|py|js|ts|java|cpp|c|h|json|yaml|yml|xml|html|css|sql|sh|bat)$/i.test(doc.filename)) {
+                    const fileSizeKB = (doc.size / 1024).toFixed(2);
+                    html += `<li style="padding:0.5rem;background:#f8f9fa;margin:0.25rem 0;border-radius:4px;border-left:3px solid #007bff;display:flex;justify-content:space-between;align-items:center;">
+                        <div style="flex:1;">
+                            <span style="font-weight:500;">📄 ${doc.filename}</span>
+                            <span style="font-size:0.75rem;color:#999;margin-left:0.5rem;">(${fileSizeKB} KB)</span>
+                        </div>
+                        <span style="font-size:0.75rem;color:#999;">${new Date(doc.modified_at).toLocaleString('zh-CN')}</span>
+                    </li>`;
                 }
             });
             
             html += '</ul>';
             fileListDiv.innerHTML = html;
-            console.log('✅ 文档列表加载完成');
+            console.log('✅ 文档列表加载完成，共', docsData.documents.length, '个文件');
         } else {
             fileListDiv.innerHTML = '<p style="text-align:center;color:#999;font-size:0.85rem;">暂无文件</p>';
             console.log('ℹ️ 目录为空');

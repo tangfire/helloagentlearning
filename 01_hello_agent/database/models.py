@@ -78,7 +78,7 @@ class Document(Base):
     status = Column(String(20), default='processing', index=True)
     error_message = Column(Text)
     tags = Column(ARRAY(String))
-    doc_metadata = Column(JSONB, default={})
+    doc_metadata = Column('metadata', JSONB, default={})  # Python 属性名 doc_metadata，数据库列名 metadata
     version = Column(Integer, default=1)
     
     # 关系
@@ -96,7 +96,7 @@ class DocumentChunk(Base):
     __table_args__ = (
         UniqueConstraint('document_id', 'chunk_index', name='uq_doc_chunk'),
         Index('idx_chunks_document', 'document_id'),
-        Index('idx_chunks_metadata', 'doc_metadata', postgresql_using='gin'),
+        Index('idx_chunks_metadata', 'metadata', postgresql_using='gin'),
     )
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -105,7 +105,7 @@ class DocumentChunk(Base):
     content = Column(Text, nullable=False)
     # 注意：vector 类型需要 pgvector 扩展，这里用 Text 暂存，实际向量存储在 Milvus
     embedding = Column(Text)  # 可以存储为 JSON 数组或 Base64 编码
-    doc_metadata = Column(JSONB, default={})
+    chunk_metadata = Column('metadata', JSONB, default={})  # Python 属性名 chunk_metadata，数据库列名 metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # 关系

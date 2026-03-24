@@ -83,7 +83,7 @@ class DocumentDAO:
                 document_id=document_id,
                 chunk_index=i,
                 content=chunk_data['content'],
-                doc_metadata=chunk_data.get('metadata', {}),
+                chunk_metadata=chunk_data.get('metadata', {}),
                 embedding=str(embedding)  # 临时存储为字符串
             )
             self.db.add(pg_chunk)

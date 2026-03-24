@@ -129,25 +129,29 @@ class MilvusClient:
         try:
             collection = Collection(self.collection_name)
             
-            # 准备数据
-            data = {
-                "id": [v["id"] for v in vectors],
-                "document_id": [v["document_id"] for v in vectors],
-                "workspace_id": [v["workspace_id"] for v in vectors],
-                "chunk_index": [v["chunk_index"] for v in vectors],
-                "content": [v["content"] for v in vectors],
-                "embedding": [v["embedding"] for v in vectors],
-                "metadata": [v.get("metadata", {}) for v in vectors],
-            }
-            
-            # 插入数据
-            result = collection.insert(data)
+            # 逐条插入（避免类型不匹配问题）
+            inserted_ids = []
+            for vector_data in vectors:
+                # 准备单条数据
+                data = {
+                    "id": vector_data["id"],
+                    "document_id": vector_data["document_id"],
+                    "workspace_id": vector_data["workspace_id"],
+                    "chunk_index": vector_data["chunk_index"],
+                    "content": vector_data["content"],
+                    "embedding": vector_data["embedding"],
+                    "metadata": vector_data.get("metadata", {}),
+                }
+                
+                # 插入单条数据
+                result = collection.insert([data])
+                inserted_ids.extend(result.primary_keys)
             
             # 刷新集合（立即可查）
             collection.flush()
             
             print(f"✅ 插入 {len(vectors)} 个向量到 Milvus")
-            return {"success": True, "count": len(vectors), "ids": result.primary_keys}
+            return {"success": True, "count": len(vectors), "ids": inserted_ids}
             
         except Exception as e:
             print(f"❌ Milvus 插入失败：{e}")
