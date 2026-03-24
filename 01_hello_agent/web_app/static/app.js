@@ -112,8 +112,8 @@ async function sendMessage() {
         // 移除加载动画
         removeLoadingMessage(loadingId);
         
-        // 显示助手回答
-        addChatMessage(data.answer, 'assistant', data.sources);
+        // 显示助手回答（包含工作空间信息）
+        addChatMessage(data.answer, 'assistant', data.sources, data.workspace_info);
         
     } catch (error) {
         removeLoadingMessage(loadingId);
@@ -121,35 +121,29 @@ async function sendMessage() {
     }
 }
 
-function addChatMessage(content, type, sources = []) {
+function addChatMessage(content, type, sources = [], workspaceInfo = null) {
     const messagesDiv = document.getElementById('chatMessages');
     
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
     
-    let sourcesHtml = '';
-    if (sources.length > 0) {
-        sourcesHtml = `
-            <div class="message-sources">
-                <strong>来源:</strong>
-                <ul>
-                    ${sources.map(s => {
-                        // 如果 source 是对象，提取有用信息
-                        if (typeof s === 'object' && s.source) {
-                            const filename = s.source.split('\\').pop() || s.source.split('/').pop();
-                            return `<li><code>${filename}</code> (第 ${s.page || 0} 块)</li>`;
-                        }
-                        return `<li>${s}</li>`;
-                    }).join('')}
-                </ul>
+    // 工作空间信息展示（仅针对助手消息）
+    let workspaceHtml = '';
+    if (workspaceInfo && type === 'assistant') {
+        workspaceHtml = `
+            <div class="workspace-info" style="margin-bottom:10px;padding:8px;background:#f5f5f5;border-left:3px solid #4CAF50;border-radius:4px;font-size:0.85rem;">
+                <strong>📁 当前工作空间文档：</strong><br>
+                <div style="margin-top:5px;max-height:150px;overflow-y:auto;">${workspaceInfo.replace(/\n/g, '<br>')}</div>
             </div>
         `;
     }
     
+    // 已移除来源显示
+    
     messageDiv.innerHTML = `
         <div class="message-content">
+            ${workspaceHtml}
             ${content.replace(/\n/g, '<br>')}
-            ${sourcesHtml}
         </div>
     `;
     

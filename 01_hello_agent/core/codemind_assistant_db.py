@@ -22,12 +22,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 
 # 导入数据库层
-from database.db_connection import get_db_context, SessionLocal
+from database.db_connection import get_db_context
 from database.dao import (
-    DocumentDAO, WorkspaceDAO, UserDAO, 
+    DocumentDAO, UserDAO,
     OperationLogDAO, ConversationDAO, RetrieverService
 )
-from database.models import User, Workspace, Document as DBDocument
 from database.milvus_client import get_milvus_client
 
 # MarkItDown for document conversion
@@ -234,6 +233,17 @@ class CodeMindAssistantDB:
         """
         try:
             with get_db_context() as db:
+                # 初始化 DAO
+                retriever = RetrieverService(db)
+                doc_dao = DocumentDAO(db)
+                
+                workspace_id = self.workspace_id or "00000000-0000-0000-0000-000000000001"
+                
+                # 【新增】获取当前工作空间的文档列表，用于增强提示词
+                from database.models import Document
+                workspace_docs = db.query(Document).filter(Document.workspace_id == workspace_id).all()
+                workspace_doc_summary = self._build_workspace_summary(workspace_docs)
+                
                 # 检索相关文档
                 context_docs = self.search(question, k=5)
                 
@@ -250,18 +260,13 @@ class CodeMindAssistantDB:
                             'score': doc.get('score', 0)
                         })
                 
-                # 构建提示词
-                if use_context and context_text:
-                    prompt = f"""基于以下上下文回答问题：
-
-上下文：
-{context_text}
-
-问题：{question}
-
-请根据上下文给出准确的回答："""
-                else:
-                    prompt = question
+                # 【增强】构建包含工作空间信息的提示词
+                prompt = self._build_enhanced_prompt(
+                    question=question,
+                    workspace_summary=workspace_doc_summary,
+                    context=context_text,
+                    use_context=use_context and bool(context_docs)
+                )
                 
                 # 调用 LLM
                 response = self.llm.invoke(prompt)
@@ -286,7 +291,8 @@ class CodeMindAssistantDB:
                 return {
                     'answer': answer,
                     'sources': sources,
-                    'context_used': len(context_docs) > 0
+                    'context_used': len(context_docs) > 0,
+                    'workspace_info': workspace_doc_summary  # 新增：返回工作空间信息
                 }
                 
         except Exception as e:
@@ -296,6 +302,70 @@ class CodeMindAssistantDB:
                 'sources': [],
                 'context_used': False
             }
+    
+    def _build_workspace_summary(self, workspace_docs: List[Any]) -> str:
+        """
+        构建工作空间文档摘要
+        
+        Args:
+            workspace_docs: 文档列表
+            
+        Returns:
+            格式化的文档摘要字符串
+        """
+        if not workspace_docs:
+            return "当前工作空间暂无文档"
+        
+        doc_list = []
+        for doc in workspace_docs:
+            filename = doc.filename
+            size_kb = round(doc.file_size / 1024, 1) if doc.file_size else 0
+            status = doc.status
+            doc_list.append(f"  - 📄 {filename} ({size_kb} KB, 状态：{status})")
+        
+        summary = "\n".join(doc_list)
+        return f"""当前工作空间包含以下 {len(workspace_docs)} 个文档：
+{summary}"""
+    
+    def _build_enhanced_prompt(self, question: str, workspace_summary: str, 
+                               context: str, use_context: bool) -> str:
+        """
+        构建增强的提示词，包含工作空间信息和检索到的上下文
+        
+        Args:
+            question: 用户问题
+            workspace_summary: 工作空间文档摘要
+            context: 检索到的相关上下文
+            use_context: 是否使用上下文
+            
+        Returns:
+            增强后的提示词
+        """
+        if use_context and context:
+            prompt = f"""你是一个专业的代码助手。请根据以下信息回答问题。
+
+【当前工作空间文档】
+{workspace_summary}
+
+【检索到的相关信息】
+{context}
+
+【用户问题】
+{question}
+
+请结合工作空间文档和以上检索到的相关信息，给出准确、详细的回答："""
+        else:
+            prompt = f"""你是一个专业的代码助手。请根据以下信息回答问题。
+
+【当前工作空间文档】
+{workspace_summary}
+
+【用户问题】
+{question}
+
+请结合工作空间文档内容，给出准确、详细的回答："""
+        
+        return prompt
     
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""

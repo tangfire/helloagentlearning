@@ -322,6 +322,7 @@ class ChatResponse(BaseModel):
     retrieval_method: str = "hybrid"
     context_used: bool = True
     workspace_id: str = ""
+    workspace_info: str = ""  # 新增：工作空间文档摘要
 
 class CodebaseRequest(BaseModel):
     command: str = "dir"
@@ -398,73 +399,87 @@ def get_assistant_db() -> CodeMindAssistantDB:
     
     workspace_id = current_workspace["id"]
     
-    if workspace_id not in assistants_db:
-        # 初始化数据库版助手 - 使用默认管理员用户的 UUID
-        from database.dao import UserDAO, WorkspaceDAO
-        from database.db_connection import get_db_context
-        import uuid
+    # 【关键修复】检查是否需要将短 ID 转换为完整 UUID
+    from database.dao import UserDAO, WorkspaceDAO
+    from database.db_connection import get_db_context
+    import uuid
+    
+    # 获取默认用户的 UUID
+    with get_db_context() as db:
+        user_dao = UserDAO(db)
+        default_user = user_dao.get_default_user()
+        user_id = str(default_user.id) if default_user else "00000000-0000-0000-0000-000000000001"
         
-        # 获取默认用户的 UUID
-        with get_db_context() as db:
-            user_dao = UserDAO(db)
-            default_user = user_dao.get_default_user()
-            user_id = str(default_user.id) if default_user else "00000000-0000-0000-0000-000000000001"
+        # 检查工作空间是否已经在数据库中有映射
+        # 如果 workspace_id 是短 ID（8 位），需要在数据库中查找或创建对应的完整 UUID
+        is_short_id = len(workspace_id) == 8
+        
+        if is_short_id:
+            # 短 ID 模式：在数据库中查找匹配的完整 UUID 工作空间
+            workspace_dao = WorkspaceDAO(db)
+            all_workspaces = workspace_dao.get_user_workspaces(user_id)
             
-            # 检查工作空间是否已经在数据库中有映射
-            # 如果 workspace_id 是短 ID（8 位），需要在数据库中查找或创建对应的完整 UUID
-            is_short_id = len(workspace_id) == 8
+            print(f"   - 数据库中找到 {len(all_workspaces)} 个工作空间")
+            for ws in all_workspaces:
+                print(f"     * {ws.name} (ID: {ws.id})")
             
-            if is_short_id:
-                # 短 ID 模式：在数据库中查找匹配的完整 UUID 工作空间
-                workspace_dao = WorkspaceDAO(db)
-                all_workspaces = workspace_dao.get_user_workspaces(user_id)
-                
-                print(f"   - 数据库中找到 {len(all_workspaces)} 个工作空间")
-                for ws in all_workspaces:
-                    print(f"     * {ws.name} (ID: {ws.id})")
-                
-                # 查找名称匹配的工作空间（精确匹配）
-                matched_workspace = None
-                for ws in all_workspaces:
-                    if str(ws.name).strip() == str(current_workspace["name"]).strip():
-                        matched_workspace = ws
-                        break
-                
-                if matched_workspace:
-                    # 找到匹配的工作空间，使用其完整 UUID
-                    full_workspace_id = str(matched_workspace.id)
-                    print(f"   ✓ 找到匹配的工作空间：{full_workspace_id}")
-                else:
-                    # 创建新的数据库工作空间
-                    full_workspace_id = str(uuid.uuid4())
-                    db_workspace = workspace_dao.create_workspace(
-                        name=current_workspace["name"],
-                        owner_id=user_id,
-                        description=current_workspace.get("description", "")
-                    )
-                    print(f"   ✓ 在数据库中创建工作空间：{full_workspace_id}")
-                
-                # 更新当前工作空间的 ID 为完整 UUID
-                current_workspace["id"] = full_workspace_id
-                workspace_id = full_workspace_id
-                # 重要：同步回 workspace_manager，保持一致性
-                workspace_manager.current_workspace_id = full_workspace_id
+            # 查找名称匹配的工作空间（精确匹配）
+            matched_workspace = None
+            for ws in all_workspaces:
+                if str(ws.name).strip() == str(current_workspace["name"]).strip():
+                    matched_workspace = ws
+                    break
+            
+            original_short_id = workspace_id  # 保存原始短 ID 用于后续更新
+            
+            if matched_workspace:
+                # 找到匹配的工作空间，使用其完整 UUID
+                full_workspace_id = str(matched_workspace.id)
+                print(f"   ✓ 找到匹配的工作空间：{full_workspace_id}")
             else:
-                # 完整 UUID 模式：直接查询数据库
-                workspace_dao = WorkspaceDAO(db)
-                db_workspace = workspace_dao.get_workspace(workspace_id)
-                
-                if not db_workspace:
-                    # 在数据库中创建记录
-                    db_workspace = workspace_dao.create_workspace(
-                        name=current_workspace["name"],
-                        owner_id=user_id,
-                        description=current_workspace.get("description", "")
-                    )
-                    print(f"   - 在数据库中创建工作空间：{workspace_id}")
-                else:
-                    print(f"   - 使用数据库中的工作空间：{workspace_id}")
-        
+                # 创建新的数据库工作空间
+                db_workspace = workspace_dao.create_workspace(
+                    name=current_workspace["name"],
+                    owner_id=user_id,
+                    description=current_workspace.get("description", "")
+                )
+                full_workspace_id = str(db_workspace.id)  # 使用返回的 workspace 对象的 ID
+                print(f"   ✓ 在数据库中创建工作空间：{full_workspace_id}")
+            
+            # 【关键】更新当前工作空间的 ID 为完整 UUID
+            current_workspace["id"] = full_workspace_id
+            workspace_id = full_workspace_id
+            # 重要：同步回 workspace_manager，保持一致性
+            workspace_manager.current_workspace_id = full_workspace_id
+            
+            # 【重要】更新 workspaces 字典中的记录，确保后续操作使用完整 UUID
+            if original_short_id in workspace_manager.workspaces:
+                workspace_manager.workspaces[original_short_id]["id"] = full_workspace_id
+        else:
+            # 完整 UUID 模式：直接查询数据库
+            workspace_dao = WorkspaceDAO(db)
+            db_workspace = workspace_dao.get_workspace(workspace_id)
+            
+            if not db_workspace:
+                # 在数据库中创建记录
+                db_workspace = workspace_dao.create_workspace(
+                    name=current_workspace["name"],
+                    owner_id=user_id,
+                    description=current_workspace.get("description", "")
+                )
+                print(f"   - 在数据库中创建工作空间：{workspace_id}")
+            else:
+                print(f"   - 使用数据库中的工作空间：{workspace_id}")
+    
+    # 【关键修复】如果助手实例已存在但 workspace_id 不同，删除旧实例
+    if workspace_id in assistants_db:
+        existing_assistant = assistants_db[workspace_id]
+        # 检查是否需要更新 workspace_id（从短 ID 到完整 UUID）
+        if hasattr(existing_assistant, 'workspace_id') and existing_assistant.workspace_id != workspace_id:
+            print(f"   🔄 检测到 workspace_id 变化，清除旧助手实例...")
+            del assistants_db[workspace_id]
+    
+    if workspace_id not in assistants_db:
         # 初始化数据库版助手
         assistants_db[workspace_id] = CodeMindAssistantDB(
             user_id=user_id,  # 使用默认管理员用户的 UUID
@@ -781,7 +796,8 @@ async def chat(request: ChatRequest):
                 confidence=0.8,
                 retrieval_method="database_hybrid",
                 context_used=result.get("context_used", False),
-                workspace_id=current_ws["id"] if current_ws else ""
+                workspace_id=current_ws["id"] if current_ws else "",
+                workspace_info=result.get("workspace_info", "")  # 新增：工作空间信息
             )
         else:
             # 使用原有 FAISS 版本
