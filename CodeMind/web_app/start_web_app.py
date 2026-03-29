@@ -53,20 +53,30 @@ def start_server():
     required_files = [
         'web_api.py',
         '../core/codemind_assistant.py',
-        '../tools/mcp_client.py',
-        'static/index.html'
+        '../core/codemind_assistant_db.py',
+        '../database/dao.py',
+        '../tools/diagnostic_engine.py',
+        '../tools/ppt_generator.py',
+        'static/workspace.html'
     ]
     
     print("\n📁 检查项目文件...")
+    missing_files = []
     for file in required_files:
-        if not Path(file).exists():
-            print(f"❌ 缺少必要文件：{file}")
-            return False
-        print(f"   ✓ {file}")
+        file_path = Path(file)
+        if not file_path.exists():
+            print(f"   ❌ {file}")
+            missing_files.append(file)
+        else:
+            print(f"   ✓ {file}")
+    
+    if missing_files:
+        print(f"\n⚠️  缺少文件：{', '.join(missing_files)}")
+        return False
     
     print("\n🌐 启动 Web 服务器...")
     print("\n访问地址:")
-    print("  📱 前端界面：http://localhost:8000")
+    print("  💼 工作空间：http://localhost:8000")
     print("  📚 API 文档：http://localhost:8000/docs")
     print("  🔍 ReDoc:   http://localhost:8000/redoc")
     print("\n按 Ctrl+C 停止服务器\n")

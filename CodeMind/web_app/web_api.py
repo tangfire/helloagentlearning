@@ -496,12 +496,17 @@ def get_assistant_db() -> CodeMindAssistantDB:
 
 @app.get("/")
 async def root():
-    """根路径 - 返回前端页面"""
-    html_path = BASE_DIR / "static" / "index.html"
-    print(f"📄 请求根路径，HTML 文件位置：{html_path}")
-    print(f"📄 文件是否存在：{html_path.exists()}")
+    """根路径 - 重定向到工作空间"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/workspace")
+
+@app.get("/workspace")
+async def workspace_page():
+    """企业工作空间页面"""
+    html_path = BASE_DIR / "static" / "workspace.html"
+    print(f"📄 请求工作空间页面，HTML 文件位置：{html_path}")
     if not html_path.exists():
-        raise HTTPException(status_code=404, detail=f"index.html not found at {html_path}")
+        raise HTTPException(status_code=404, detail=f"workspace.html not found")
     return FileResponse(html_path)
 
 # 静态文件路由（在根路由之后定义）
@@ -1022,6 +1027,432 @@ async def document_stats():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==================== 企业诊断平台 API ====================
+
+from pydantic import BaseModel
+from typing import Optional, List
+from tools.diagnostic_engine import DiagnosticEngine
+from tools.ppt_generator import PPTGenerator
+
+class EnterpriseCreate(BaseModel):
+    """创建企业"""
+    name: str
+    code: str
+    industry: Optional[str] = None
+    scale: Optional[str] = None
+    description: Optional[str] = None
+
+class EnterpriseUpdate(BaseModel):
+    """更新企业"""
+    name: Optional[str] = None
+    industry: Optional[str] = None
+    scale: Optional[str] = None
+    description: Optional[str] = None
+
+class KnowledgeCreate(BaseModel):
+    """创建企业知识"""
+    enterprise_id: str
+    title: str
+    content: Optional[str] = None
+    category: Optional[str] = None
+    doc_type: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class ReportGenerateRequest(BaseModel):
+    """生成报告请求"""
+    enterprise_id: Optional[str] = None  # 可选，如果不传则使用当前工作空间
+    title: str
+    template_id: Optional[str] = None
+    analysis_query: Optional[str] = None
+    generate_ppt: bool = True
+
+@app.post("/api/enterprise/create")
+async def create_enterprise(request: EnterpriseCreate):
+    """创建企业"""
+    try:
+        from database.dao import EnterpriseDAO
+        from database.db_connection import get_db_context
+        
+        with get_db_context() as db:
+            enterprise_dao = EnterpriseDAO(db)
+            user_dao = UserDAO(db)
+            
+            # 获取默认用户
+            user = user_dao.get_default_user()
+            owner_id = str(user.id) if user else "00000000-0000-0000-0000-000000000001"
+            
+            # 检查编码是否已存在
+            existing = enterprise_dao.get_enterprise_by_code(request.code)
+            if existing:
+                raise HTTPException(status_code=400, detail=f"企业编码 {request.code} 已存在")
+            
+            # 创建企业
+            enterprise = enterprise_dao.create_enterprise(
+                name=request.name,
+                code=request.code,
+                owner_id=owner_id,
+                industry=request.industry,
+                scale=request.scale,
+                description=request.description
+            )
+            
+            return {
+                "success": True,
+                "enterprise_id": str(enterprise.id),
+                "code": request.code,
+                "message": f"企业 '{request.name}' 创建成功"
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/enterprise/list")
+async def list_enterprises():
+    """列出所有企业"""
+    try:
+        from database.dao import EnterpriseDAO
+        from database.db_connection import get_db_context
+        
+        with get_db_context() as db:
+            enterprise_dao = EnterpriseDAO(db)
+            user_dao = UserDAO(db)
+            
+            user = user_dao.get_default_user()
+            user_id = str(user.id) if user else "00000000-0000-0000-0000-000000000001"
+            
+            enterprises = enterprise_dao.get_user_enterprises(user_id)
+            
+            return {
+                "enterprises": [
+                    {
+                        "id": str(ent.id),
+                        "name": ent.name,
+                        "code": ent.code,
+                        "industry": ent.industry,
+                        "scale": ent.scale,
+                        "description": ent.description,
+                        "created_at": ent.created_at.isoformat() if ent.created_at else None
+                    }
+                    for ent in enterprises
+                ],
+                "count": len(enterprises)
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/enterprise/{enterprise_id}")
+async def get_enterprise(enterprise_id: str):
+    """获取企业详情"""
+    try:
+        from database.dao import EnterpriseDAO
+        from database.db_connection import get_db_context
+        
+        with get_db_context() as db:
+            enterprise_dao = EnterpriseDAO(db)
+            enterprise = enterprise_dao.get_enterprise(enterprise_id)
+            
+            if not enterprise:
+                raise HTTPException(status_code=404, detail="企业不存在")
+            
+            return {
+                "enterprise": {
+                    "id": str(enterprise.id),
+                    "name": enterprise.name,
+                    "code": enterprise.code,
+                    "industry": enterprise.industry,
+                    "scale": enterprise.scale,
+                    "description": enterprise.description,
+                    "created_at": enterprise.created_at.isoformat() if enterprise.created_at else None
+                }
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/knowledge/add")
+async def add_knowledge(request: KnowledgeCreate):
+    """添加企业知识库内容"""
+    try:
+        from database.dao import EnterpriseKnowledgeDAO
+        from database.db_connection import get_db_context
+        
+        with get_db_context() as db:
+            knowledge_dao = EnterpriseKnowledgeDAO(db)
+            
+            knowledge = knowledge_dao.create_knowledge(
+                enterprise_id=request.enterprise_id,
+                title=request.title,
+                content=request.content,
+                category=request.category,
+                doc_type=request.doc_type,
+                tags=request.tags
+            )
+            
+            return {
+                "success": True,
+                "knowledge_id": str(knowledge.id),
+                "message": f"知识 '{request.title}' 添加成功"
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/knowledge/{enterprise_id}")
+async def get_knowledge(enterprise_id: str, category: Optional[str] = None):
+    """获取企业知识库"""
+    try:
+        from database.dao import EnterpriseKnowledgeDAO
+        from database.db_connection import get_db_context
+        
+        with get_db_context() as db:
+            knowledge_dao = EnterpriseKnowledgeDAO(db)
+            items = knowledge_dao.get_enterprise_knowledge(enterprise_id, category)
+            
+            return {
+                "knowledge": [
+                    {
+                        "id": str(item.id),
+                        "title": item.title,
+                        "category": item.category,
+                        "doc_type": item.doc_type,
+                        "content_preview": item.content[:200] if item.content else None,
+                        "created_at": item.created_at.isoformat() if item.created_at else None
+                    }
+                    for item in items
+                ],
+                "count": len(items)
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/report/generate")
+async def generate_diagnostic_report(request: ReportGenerateRequest):
+    """生成诊断分析报告"""
+    try:
+        print(f"\n📊 开始生成诊断报告...")
+        print(f"   - 标题：{request.title}")
+        print(f"   - 生成 PPT: {request.generate_ppt}")
+        
+        # 初始化诊断引擎
+        engine = DiagnosticEngine()
+        
+        # 获取当前工作空间作为企业 ID（简化处理）
+        current_ws = workspace_manager.get_current_workspace()
+        if not current_ws:
+            raise HTTPException(status_code=400, detail="请先创建或选择工作空间")
+        
+        enterprise_id = current_ws['id']
+        
+        # 生成报告
+        report_id = engine.generate_report(
+            enterprise_id=enterprise_id,
+            title=request.title,
+            analysis_query=request.analysis_query,
+            template_id=request.template_id,
+            generated_by="system"
+        )
+        
+        # 如果需要生成 PPT
+        ppt_path = None
+        if request.generate_ppt:
+            try:
+                from database.dao import DiagnosticReportDAO
+                from database.db_connection import get_db_context
+                
+                with get_db_context() as db:
+                    report_dao = DiagnosticReportDAO(db)
+                    report = report_dao.get_report(report_id)
+                    
+                    if report and report.llm_analysis:
+                        report_data = {
+                            'analysis': report.llm_analysis,
+                            'conclusions': report.conclusions,
+                            'recommendations': report.recommendations
+                        }
+                        
+                        generator = PPTGenerator()
+                        ppt_path = generator.generate_from_report(
+                            report_data=report_data,
+                            title=request.title
+                        )
+                        
+                        # 更新报告记录
+                        report_dao.update_report_content(
+                            report_id=report_id,
+                            ppt_file_path=ppt_path
+                        )
+            except Exception as e:
+                print(f"⚠️ PPT 生成失败：{e}")
+                # PPT 生成失败不影响报告生成
+        
+        return {
+            "success": True,
+            "report_id": report_id,
+            "ppt_path": ppt_path,
+            "message": f"报告 '{request.title}' 生成成功"
+        }
+    except Exception as e:
+        print(f"❌ 报告生成失败：{e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reports/list")
+async def list_reports():
+    """列出当前工作空间的所有报告"""
+    try:
+        from database.dao import DiagnosticReportDAO
+        from database.db_connection import get_db_context
+        
+        current_ws = workspace_manager.get_current_workspace()
+        if not current_ws:
+            return {"reports": [], "count": 0}
+        
+        with get_db_context() as db:
+            report_dao = DiagnosticReportDAO(db)
+            reports = report_dao.get_enterprise_reports(current_ws['id'])
+            
+            return {
+                "reports": [
+                    {
+                        "id": str(rep.id),
+                        "title": rep.title,
+                        "status": rep.status,
+                        "report_type": rep.report_type,
+                        "created_at": rep.created_at.isoformat() if rep.created_at else None,
+                        "completed_at": rep.completed_at.isoformat() if rep.completed_at else None
+                    }
+                    for rep in reports
+                ],
+                "count": len(reports)
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reports/latest")
+async def get_latest_report():
+    """获取最新的报告"""
+    try:
+        from database.dao import DiagnosticReportDAO
+        from database.db_connection import get_db_context
+        
+        current_ws = workspace_manager.get_current_workspace()
+        if not current_ws:
+            return {"report": None}
+        
+        with get_db_context() as db:
+            report_dao = DiagnosticReportDAO(db)
+            reports = report_dao.get_enterprise_reports(current_ws['id'])
+            
+            if reports:
+                latest = reports[0]  # 按创建时间倒序，取第一个
+                return {
+                    "report": {
+                        "id": str(latest.id),
+                        "title": latest.title,
+                        "status": latest.status,
+                        "llm_analysis": latest.llm_analysis,
+                        "conclusions": latest.conclusions,
+                        "recommendations": latest.recommendations,
+                        "ppt_file_path": latest.ppt_file_path,
+                        "created_at": latest.created_at.isoformat() if latest.created_at else None
+                    }
+                }
+            return {"report": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/report/{report_id}")
+async def get_report(report_id: str):
+    """获取报告详情"""
+    try:
+        from database.dao import DiagnosticReportDAO
+        from database.db_connection import get_db_context
+        
+        with get_db_context() as db:
+            report_dao = DiagnosticReportDAO(db)
+            report = report_dao.get_report(report_id)
+            
+            if not report:
+                raise HTTPException(status_code=404, detail="报告不存在")
+            
+            return {
+                "report": {
+                    "id": str(report.id),
+                    "title": report.title,
+                    "status": report.status,
+                    "llm_analysis": report.llm_analysis,
+                    "conclusions": report.conclusions,
+                    "recommendations": report.recommendations,
+                    "ppt_file_path": report.ppt_file_path,
+                    "created_at": report.created_at.isoformat() if report.created_at else None,
+                    "completed_at": report.completed_at.isoformat() if report.completed_at else None
+                }
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reports/enterprise/{enterprise_id}")
+async def list_enterprise_reports(enterprise_id: str):
+    """列出企业的所有报告"""
+    try:
+        from database.dao import DiagnosticReportDAO
+        from database.db_connection import get_db_context
+        
+        with get_db_context() as db:
+            report_dao = DiagnosticReportDAO(db)
+            reports = report_dao.get_enterprise_reports(enterprise_id)
+            
+            return {
+                "reports": [
+                    {
+                        "id": str(rep.id),
+                        "title": rep.title,
+                        "status": rep.status,
+                        "report_type": rep.report_type,
+                        "created_at": rep.created_at.isoformat() if rep.created_at else None
+                    }
+                    for rep in reports
+                ],
+                "count": len(reports)
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== 工作空间 API ====================
+
+@app.get("/api/workspace/current")
+async def get_current_workspace():
+    """获取当前工作空间"""
+    try:
+        current_ws = workspace_manager.get_current_workspace()
+        if current_ws:
+            return {"workspace": current_ws}
+        return {"workspace": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/workspace/create")
+async def create_workspace(request: WorkspaceCreate):
+    """创建工作空间（简化版）"""
+    try:
+        workspace_id = workspace_manager.create_workspace(
+            name=request.name,
+            description=request.description or ""
+        )
+        workspace_manager.switch_workspace(workspace_id)
+        
+        return {
+            "success": True,
+            "workspace_id": workspace_id,
+            "name": request.name
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================== MCP 服务 API ====================
 
 @app.post("/api/mcp/connect")
@@ -1177,19 +1608,24 @@ if __name__ == "__main__":
     print("🚀 启动 CodeMind Assistant Web API")
     print("=" * 80)
     print("\n访问地址:")
-    print("  📱 前端界面：http://localhost:8000")
+    print("  💼 工作空间：http://localhost:8000")
     print("  📚 API 文档：http://localhost:8000/docs")
     print("  🔍 ReDoc:   http://localhost:8000/redoc")
     print("\n功能列表:")
-    print("  💬 智能问答      - /api/chat")
-    print("  🗂️ 工作空间管理  - /api/workspace")
-    print("  📤 文件上传      - /api/upload")
-    print("  💾 会话管理      - /api/session")
-    print("  🗂️ 代码库操作    - /api/codebase")
-    print("  ✅ 任务管理      - /api/tasks")
-    print("  📄 文档处理      - /api/documents")
-    print("  🔌 MCP 服务控制  - /api/mcp")
-    print("  📊 统计监控      - /api/stats")
+    print("  💬 智能问答         - /api/chat")
+    print("  🗂️ 工作空间管理     - /api/workspace")
+    print("  📤 文件上传         - /api/upload")
+    print("  💾 会话管理         - /api/session")
+    print("  🗂️ 代码库操作       - /api/codebase")
+    print("  ✅ 任务管理         - /api/tasks")
+    print("  📄 文档处理         - /api/documents")
+    print("  🔌 MCP 服务控制     - /api/mcp")
+    print("  📊 统计监控         - /api/stats")
+    print("\n🆕 企业诊断平台功能:")
+    print("  🏢 企业管理         - /api/enterprise")
+    print("  📚 知识库管理       - /api/knowledge")
+    print("  📊 诊断报告生成     - /api/report/generate")
+    print("  📽️ PPT 自动生成      - (集成在报告生成中)")
     print("=" * 80)
     
     uvicorn.run(

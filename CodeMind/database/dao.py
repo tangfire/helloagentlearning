@@ -14,7 +14,8 @@ from sqlalchemy import text
 # 导入 ORM 模型
 from database.models import (
     User, Workspace, Document, DocumentChunk, 
-    Note, OperationLog, ConversationHistory
+    Note, OperationLog, ConversationHistory,
+    Enterprise, EnterpriseKnowledge, ReportTemplate, DiagnosticReport
 )
 from database.milvus_client import get_milvus_client
 
@@ -339,3 +340,247 @@ class RetrieverService:
             k=k,
             filter_expr=filter_expr
         )
+
+
+# ==================== 企业诊断平台 DAO ====================
+
+class EnterpriseDAO:
+    """企业数据访问对象"""
+    
+    def __init__(self, db_session: Session):
+        self.db = db_session
+    
+    def create_enterprise(self, name: str, code: str, owner_id: str,
+                         industry: str = None, scale: str = None,
+                         description: str = None) -> Enterprise:
+        """创建企业记录"""
+        enterprise = Enterprise(
+            id=uuid.uuid4(),
+            name=name,
+            code=code,
+            owner_id=owner_id,
+            industry=industry,
+            scale=scale,
+            description=description
+        )
+        
+        self.db.add(enterprise)
+        self.db.commit()
+        self.db.refresh(enterprise)
+        
+        return enterprise
+    
+    def get_enterprise(self, enterprise_id: str) -> Optional[Enterprise]:
+        """获取企业信息"""
+        return self.db.query(Enterprise).filter(Enterprise.id == enterprise_id).first()
+    
+    def get_enterprise_by_code(self, code: str) -> Optional[Enterprise]:
+        """根据编码获取企业"""
+        return self.db.query(Enterprise).filter(Enterprise.code == code).first()
+    
+    def get_user_enterprises(self, user_id: str) -> List[Enterprise]:
+        """获取用户的所有企业"""
+        return self.db.query(Enterprise).filter(
+            Enterprise.owner_id == user_id,
+            Enterprise.is_active == True
+        ).all()
+    
+    def update_enterprise(self, enterprise_id: str, **kwargs) -> bool:
+        """更新企业信息"""
+        enterprise = self.get_enterprise(enterprise_id)
+        if enterprise:
+            for key, value in kwargs.items():
+                if hasattr(enterprise, key):
+                    setattr(enterprise, key, value)
+            self.db.commit()
+            return True
+        return False
+    
+    def delete_enterprise(self, enterprise_id: str) -> bool:
+        """删除企业（软删除）"""
+        enterprise = self.get_enterprise(enterprise_id)
+        if enterprise:
+            enterprise.is_active = False
+            self.db.commit()
+            return True
+        return False
+
+
+class EnterpriseKnowledgeDAO:
+    """企业知识库数据访问对象"""
+    
+    def __init__(self, db_session: Session):
+        self.db = db_session
+        self.milvus = get_milvus_client()
+    
+    def create_knowledge(self, enterprise_id: str, title: str,
+                        content: str = None, file_path: str = None,
+                        category: str = None, doc_type: str = None,
+                        tags: List[str] = None) -> EnterpriseKnowledge:
+        """创建企业知识记录"""
+        knowledge = EnterpriseKnowledge(
+            id=uuid.uuid4(),
+            enterprise_id=enterprise_id,
+            title=title,
+            content=content,
+            file_path=file_path,
+            category=category,
+            doc_type=doc_type,
+            tags=tags or []
+        )
+        
+        self.db.add(knowledge)
+        self.db.commit()
+        self.db.refresh(knowledge)
+        
+        return knowledge
+    
+    def get_enterprise_knowledge(self, enterprise_id: str, 
+                                 category: str = None) -> List[EnterpriseKnowledge]:
+        """获取企业的知识库"""
+        query = self.db.query(EnterpriseKnowledge).filter(
+            EnterpriseKnowledge.enterprise_id == enterprise_id
+        )
+        
+        if category:
+            query = query.filter(EnterpriseKnowledge.category == category)
+        
+        return query.order_by(EnterpriseKnowledge.created_at.desc()).all()
+    
+    def search_knowledge(self, enterprise_id: str, keywords: str) -> List[EnterpriseKnowledge]:
+        """搜索企业知识库"""
+        return self.db.query(EnterpriseKnowledge).filter(
+            EnterpriseKnowledge.enterprise_id == enterprise_id,
+            EnterpriseKnowledge.content.ilike(f'%{keywords}%')
+        ).all()
+    
+    def delete_knowledge(self, knowledge_id: str) -> bool:
+        """删除知识记录"""
+        knowledge = self.db.query(EnterpriseKnowledge).filter(
+            EnterpriseKnowledge.id == knowledge_id
+        ).first()
+        if knowledge:
+            self.db.delete(knowledge)
+            self.db.commit()
+            return True
+        return False
+
+
+class ReportTemplateDAO:
+    """报告模板数据访问对象"""
+    
+    def __init__(self, db_session: Session):
+        self.db = db_session
+    
+    def create_template(self, name: str, category: str, template_type: str,
+                       structure: List[Dict] = None, prompt_template: str = None,
+                       description: str = None, created_by: str = None) -> ReportTemplate:
+        """创建报告模板"""
+        template = ReportTemplate(
+            id=uuid.uuid4(),
+            name=name,
+            description=description,
+            category=category,
+            template_type=template_type,
+            structure=structure or [],
+            prompt_template=prompt_template,
+            created_by=created_by
+        )
+        
+        self.db.add(template)
+        self.db.commit()
+        self.db.refresh(template)
+        
+        return template
+    
+    def get_template(self, template_id: str) -> Optional[ReportTemplate]:
+        """获取报告模板"""
+        return self.db.query(ReportTemplate).filter(ReportTemplate.id == template_id).first()
+    
+    def get_templates_by_category(self, category: str) -> List[ReportTemplate]:
+        """获取某类别的所有模板"""
+        return self.db.query(ReportTemplate).filter(
+            ReportTemplate.category == category
+        ).all()
+    
+    def get_default_templates(self) -> List[ReportTemplate]:
+        """获取默认模板"""
+        return self.db.query(ReportTemplate).filter(
+            ReportTemplate.is_default == True
+        ).all()
+
+
+class DiagnosticReportDAO:
+    """诊断报告数据访问对象"""
+    
+    def __init__(self, db_session: Session):
+        self.db = db_session
+    
+    def create_report(self, enterprise_id: str, title: str,
+                     template_id: str = None, report_type: str = 'comprehensive',
+                     analysis_query: str = None, generated_by: str = None) -> DiagnosticReport:
+        """创建诊断报告"""
+        report = DiagnosticReport(
+            id=uuid.uuid4(),
+            enterprise_id=enterprise_id,
+            template_id=template_id,
+            title=title,
+            report_type=report_type,
+            analysis_query=analysis_query,
+            generated_by=generated_by,
+            status='draft'
+        )
+        
+        self.db.add(report)
+        self.db.commit()
+        self.db.refresh(report)
+        
+        return report
+    
+    def get_report(self, report_id: str) -> Optional[DiagnosticReport]:
+        """获取诊断报告"""
+        return self.db.query(DiagnosticReport).filter(
+            DiagnosticReport.id == report_id
+        ).first()
+    
+    def get_enterprise_reports(self, enterprise_id: str) -> List[DiagnosticReport]:
+        """获取企业的所有报告"""
+        return self.db.query(DiagnosticReport).filter(
+            DiagnosticReport.enterprise_id == enterprise_id
+        ).order_by(DiagnosticReport.created_at.desc()).all()
+    
+    def update_report_status(self, report_id: str, status: str, 
+                            error_message: str = None) -> bool:
+        """更新报告状态"""
+        report = self.get_report(report_id)
+        if report:
+            report.status = status
+            if error_message:
+                report.error_message = error_message
+            if status == 'completed':
+                report.completed_at = datetime.now()
+            elif status == 'generating':
+                report.started_at = datetime.now()
+            self.db.commit()
+            return True
+        return False
+    
+    def update_report_content(self, report_id: str, 
+                             llm_analysis: str = None,
+                             conclusions: List = None,
+                             recommendations: List = None,
+                             ppt_file_path: str = None) -> bool:
+        """更新报告内容"""
+        report = self.get_report(report_id)
+        if report:
+            if llm_analysis:
+                report.llm_analysis = llm_analysis
+            if conclusions is not None:
+                report.conclusions = conclusions
+            if recommendations is not None:
+                report.recommendations = recommendations
+            if ppt_file_path:
+                report.ppt_file_path = ppt_file_path
+            self.db.commit()
+            return True
+        return False

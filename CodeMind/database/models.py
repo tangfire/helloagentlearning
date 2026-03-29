@@ -194,3 +194,124 @@ class ConversationHistory(Base):
     
     def __repr__(self):
         return f"<ConversationHistory(session_id='{self.session_id}')>"
+
+
+# ==================== 企业诊断平台新增模型 ====================
+
+class Enterprise(Base):
+    """企业信息表"""
+    __tablename__ = 'enterprises'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(200), nullable=False, index=True)
+    code = Column(String(50), unique=True, nullable=False, index=True)  # 企业唯一编码
+    industry = Column(String(100))  # 行业
+    scale = Column(String(50))  # 规模
+    description = Column(Text)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), index=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # 关系
+    owner = relationship("User")
+    knowledge_base = relationship("EnterpriseKnowledge", back_populates="enterprise", cascade="all, delete-orphan")
+    reports = relationship("DiagnosticReport", back_populates="enterprise", cascade="all, delete-orphan")
+    
+    def __repr__(self):
+        return f"<Enterprise(name='{self.name}', code='{self.code}')>"
+
+
+class EnterpriseKnowledge(Base):
+    """企业知识库表（存储企业专属资料）"""
+    __tablename__ = 'enterprise_knowledge'
+    __table_args__ = (
+        Index('idx_knowledge_enterprise', 'enterprise_id'),
+        Index('idx_knowledge_category', 'category'),
+    )
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    enterprise_id = Column(UUID(as_uuid=True), ForeignKey('enterprises.id', ondelete='CASCADE'), nullable=False)
+    title = Column(String(300), nullable=False)
+    content = Column(Text)
+    file_path = Column(String(500))
+    category = Column(String(50), index=True)  # 分类：财务、人力、运营、技术等
+    doc_type = Column(String(50))  # 文档类型：制度、报告、数据等
+    tags = Column(ARRAY(String))
+    knowledge_metadata = Column(JSONB, default={})
+    version = Column(Integer, default=1)
+    is_public = Column(Boolean, default=False)  # 是否公开共享
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # 关系
+    enterprise = relationship("Enterprise", back_populates="knowledge_base")
+    
+    def __repr__(self):
+        return f"<EnterpriseKnowledge(title='{self.title}', category='{self.category}')>"
+
+
+class ReportTemplate(Base):
+    """诊断报告模板表"""
+    __tablename__ = 'report_templates'
+    __table_args__ = (
+        Index('idx_template_category', 'category'),
+        Index('idx_template_type', 'template_type'),
+    )
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    category = Column(String(50), index=True)  # 模板分类
+    template_type = Column(String(50), index=True)  # 模板类型：综合、专项等
+    structure = Column(JSONB, default=[])  # 报告结构定义
+    prompt_template = Column(Text)  # LLM 提示词模板
+    ppt_template = Column(String(500))  # PPT 模板文件路径
+    is_default = Column(Boolean, default=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey('users.id'))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # 关系
+    creator = relationship("User")
+    
+    def __repr__(self):
+        return f"<ReportTemplate(name='{self.name}', type='{self.template_type}')>"
+
+
+class DiagnosticReport(Base):
+    """诊断分析报告表"""
+    __tablename__ = 'diagnostic_reports'
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'generating', 'completed', 'failed')", name='check_report_status'),
+        Index('idx_report_enterprise', 'enterprise_id'),
+        Index('idx_report_status', 'status'),
+    )
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    enterprise_id = Column(UUID(as_uuid=True), ForeignKey('enterprises.id', ondelete='CASCADE'), nullable=False, index=True)
+    template_id = Column(UUID(as_uuid=True), ForeignKey('report_templates.id'))
+    title = Column(String(300), nullable=False)
+    report_type = Column(String(50), default='comprehensive')  # 报告类型
+    status = Column(String(20), default='draft', index=True)
+    analysis_query = Column(Text)  # 分析查询条件/需求
+    llm_analysis = Column(Text)  # LLM 生成的分析内容
+    conclusions = Column(JSONB, default=[])  # 结论列表
+    recommendations = Column(JSONB, default=[])  # 建议列表
+    ppt_file_path = Column(String(500))  # 生成的 PPT 文件路径
+    pdf_file_path = Column(String(500))  # 生成的 PDF 文件路径
+    report_metadata = Column(JSONB, default={})
+    generated_by = Column(UUID(as_uuid=True), ForeignKey('users.id'))
+    error_message = Column(Text)
+    started_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # 关系
+    enterprise = relationship("Enterprise", back_populates="reports")
+    template = relationship("ReportTemplate")
+    generator = relationship("User")
+    
+    def __repr__(self):
+        return f"<DiagnosticReport(title='{self.title}', status='{self.status}')>"
